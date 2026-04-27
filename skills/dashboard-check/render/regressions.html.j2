@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Regressions — {{ snapshot_date }}</title>
+<style>{{ css }}</style>
+</head>
+<body>
+{% from "macros.j2" import status_badge %}
+
+<header>
+  <h1>Regressions</h1>
+  <p class="meta">Snapshot: <code>{{ snapshot_date }}</code> &middot; <a href="index.html">← back to index</a></p>
+</header>
+
+{% if regressions %}
+<section>
+  <table class="signal-table">
+    <thead>
+      <tr>
+        <th>Status</th><th>Signal</th><th>Component</th><th>Rule(s) triggered</th><th>Value</th><th>Baseline</th><th>Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for ev in regressions %}
+      <tr class="signal-row signal-{{ ev.status }}">
+        <td>{{ status_badge(ev.status) }}</td>
+        <td><code>{{ ev.signal_id }}</code></td>
+        <td>{{ ev.component }}</td>
+        <td><strong>{{ ev.regressions | join(", ") }}</strong></td>
+        <td>{{ ev.value }}</td>
+        <td>{{ ev.baseline if ev.baseline is not none else "—" }}</td>
+        <td>{{ ev.description }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% else %}
+<p class="empty">No regressions detected this snapshot.</p>
+{% endif %}
+
+<footer>
+  <p><a href="index.html">← back to index</a></p>
+</footer>
+</body>
+</html>

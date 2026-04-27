@@ -1,0 +1,43 @@
+# claude-config — REUSABLE Claude Code configuration only.
+# Default: ignore everything at top level; allowlist explicitly.
+
+/*
+
+# top-level files (allowlist)
+!/.gitignore
+!/.gitattributes
+!/README.md
+!/CLAUDE.md
+!/kb-config.md
+!/policy-limits.json
+!/settings.json
+
+# top-level directories (allowlist)
+!/agents/
+!/skills/
+!/hooks/
+
+# noise inside the allowlisted dirs
+**/__pycache__/
+**/*.pyc
+**/.venv/
+**/node_modules/
+.DS_Store
+
+# belt-and-suspenders deny on secrets/local-state
+.credentials.json
+**/.credentials.json
+settings.local.json
+**/settings.local.json
+projects/
+tasks/
+telemetry/
+cache/
+downloads/
+paste-cache/
+backups/
+history.jsonl
+file-history/
+session-env/
+plugins/
+plans/

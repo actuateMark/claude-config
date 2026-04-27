@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Actuate Operational Dashboard — {{ snapshot_date }}</title>
+<style>{{ css }}</style>
+</head>
+<body>
+{% from "macros.j2" import status_badge, signal_item, signal_list_header, hero_heatgrid, hero_regressions, hero_summary %}
+
+<header>
+  <h1>Actuate Operational Dashboard</h1>
+  <p class="meta">
+    Snapshot: <code>{{ snapshot_time }}</code>
+    &middot; Date: <code>{{ snapshot_date }}</code>
+    &middot; Overall: {{ status_badge(overall) }}
+  </p>
+</header>
+
+{# Hero carousel — CSS-only card switching via hidden radio buttons. Card 1 is checked by default. #}
+<section class="hero" aria-label="Hero overview">
+  <input type="radio" name="hero-card" id="hero-card-1" class="hero-radio" checked>
+  <input type="radio" name="hero-card" id="hero-card-2" class="hero-radio">
+  <input type="radio" name="hero-card" id="hero-card-3" class="hero-radio">
+
+  <nav class="hero-nav">
+    <div class="hero-nav-arrows">
+      <label for="hero-card-1" class="hero-arrow hero-arrow-1" title="Status heat-grid">&lsaquo; 1</label>
+      <label for="hero-card-2" class="hero-arrow hero-arrow-2" title="Top regressions">2</label>
+      <label for="hero-card-3" class="hero-arrow hero-arrow-3" title="Summary">3 &rsaquo;</label>
+    </div>
+    <label class="hero-nav-select-wrap">
+      <span class="hero-nav-select-label">Jump to:</span>
+      <select class="hero-nav-select" onchange="document.getElementById(this.value).checked=true">
+        <option value="hero-card-1">Status heat-grid</option>
+        <option value="hero-card-2">Top regressions ({{ regressions | length }})</option>
+        <option value="hero-card-3">Signals summary ({{ (by_component.values() | map('length') | sum) }} signals)</option>
+      </select>
+    </label>
+  </nav>
+
+  <article class="hero-card" id="hero-panel-1" aria-labelledby="hero-card-1-title">
+    <h2 id="hero-card-1-title" class="hero-card-title">Status heat-grid</h2>
+    <p class="hero-card-subtitle">One chip per signal, colored by current status. Click a chip to drill into the component page.</p>
+    {{ hero_heatgrid(by_component) }}
+  </article>
+
+  <article class="hero-card" id="hero-panel-2" aria-labelledby="hero-card-2-title">
+    <h2 id="hero-card-2-title" class="hero-card-title">Top regressions {% if regressions %}<span class="hero-card-count">({{ regressions | length }})</span>{% endif %}</h2>
+    <p class="hero-card-subtitle">Signals whose regression rules fired this run. Red-ranked first.</p>
+    {{ hero_regressions(regressions) }}
+  </article>
+
+  <article class="hero-card" id="hero-panel-3" aria-labelledby="hero-card-3-title">
+    <h2 id="hero-card-3-title" class="hero-card-title">Signals summary</h2>
+    <p class="hero-card-subtitle">Counts + per-component status mix.</p>
+    {{ hero_summary(by_component.values() | list | sum(start=[]), by_component, overall) }}
+  </article>
+</section>
+
+{% if regressions %}
+<section class="regression-banner">
+  <h2>🚨 Regressions detected</h2>
+  <ul>
+  {% for ev in regressions %}
+    <li>
+      <code>{{ ev.signal_id }}</code> ({{ ev.component }})
+      — {{ ev.regressions | join(", ") }}
+      &middot; value={{ ev.value }} baseline={{ ev.baseline }}
+    </li>
+  {% endfor %}
+  </ul>
+  <p><a href="regressions.html">Full regression drill-down →</a></p>
+</section>
+{% endif %}
+
+<section>
+  <h2>Signal grid</h2>
+  {% if by_component %}
+    {% for component, evaluations in by_component.items() %}
+    <article class="component-block component-{{ component }}">
+      <h3><a href="components/{{ component }}.html">{{ component }}</a> <small class="component-count">({{ evaluations | length }})</small></h3>
+      <div class="signal-list">
+        {{ signal_list_header() }}
+        {% for ev in evaluations %}
+        {{ signal_item(ev) }}
+        {% endfor %}
+      </div>
+    </article>
+    {% endfor %}
+  {% else %}
+    <p class="empty">No signals evaluated. Check preflight + that `enabled: true` signals have collected observations.</p>
+  {% endif %}
+</section>
+
+<section>
+  <h2>Morning summary <small>(last 24h, from shared sink)</small></h2>
+  {% if morning_summary %}
+    <details open>
+      <summary>{{ morning_summary | length }} observations from non-dashboard-check skills</summary>
+      <table class="sink-table">
+        <thead>
+          <tr><th>Time</th><th>Source skill</th><th>Component</th><th>Signal</th><th>Value</th><th>Status</th><th>Notes</th></tr>
+        </thead>
+        <tbody>
+          {% for rec in morning_summary %}
+          <tr class="sink-row signal-{{ rec.status }}">
+            <td><code>{{ rec.timestamp }}</code></td>
+            <td>{{ rec.source_skill }}</td>
+            <td>{{ rec.component }}</td>
+            <td><code>{{ rec.signal_id }}</code></td>
+            <td>{{ rec.value }}</td>
+            <td>{{ status_badge(rec.status) }}</td>
+            <td>{{ rec.notes or "" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </details>
+  {% else %}
+    <p class="empty">No non-dashboard-check observations in the last 24h. The sink populates as <code>/daily-scope</code> fan-out runs + other skills retrofit.</p>
+  {% endif %}
+</section>
+
+<footer>
+  <p>Generated by <code>/dashboard-check</code> &middot; plan: <code>~/.claude/plans/clever-tickling-swing.md</code> &middot; sketch: <code>topics/operational-health/notes/syntheses/2026-04-23_dashboard-sketch.md</code></p>
+</footer>
+</body>
+</html>

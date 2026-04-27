@@ -1,0 +1,518 @@
+:root {
+  --bg: #0d1117;
+  --fg: #c9d1d9;
+  --muted: #8b949e;
+  --border: #30363d;
+  --green: #3fb950;
+  --yellow: #d29922;
+  --red: #f85149;
+  --blue: #58a6ff;
+  --info: #6e7681;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 1.5rem;
+  line-height: 1.5;
+}
+
+h1 { font-size: 1.75rem; margin: 0 0 0.25rem; }
+h2 { font-size: 1.25rem; margin: 1.5rem 0 0.5rem; border-bottom: 1px solid var(--border); padding-bottom: 0.25rem; }
+h3 { font-size: 1.05rem; margin: 1rem 0 0.5rem; }
+
+code, pre {
+  font-family: "SF Mono", Consolas, "Liberation Mono", monospace;
+  font-size: 0.9em;
+  background: rgba(110, 118, 129, 0.1);
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+}
+
+header .meta { color: var(--muted); font-size: 0.9rem; margin-top: 0; }
+
+.badge {
+  display: inline-block;
+  padding: 0.15em 0.5em;
+  border-radius: 3px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #0d1117;
+}
+.badge-green { background: var(--green); }
+.badge-yellow { background: var(--yellow); }
+.badge-red { background: var(--red); color: #fff; }
+.badge-informational { background: var(--info); color: var(--fg); }
+.badge-error { background: var(--muted); color: #0d1117; }
+
+table.signal-table, table.sink-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  margin: 0.5rem 0;
+}
+.signal-table th, .sink-table th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  padding: 0.35rem 0.5rem;
+}
+.signal-table td, .sink-table td {
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid rgba(48, 54, 61, 0.4);
+  vertical-align: top;
+}
+.signal-id code { white-space: nowrap; }
+.signal-value, .signal-baseline { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.signal-desc, .sink-row td { color: var(--fg); }
+
+.signal-row.signal-red { background: rgba(248, 81, 73, 0.08); }
+.signal-row.signal-yellow { background: rgba(210, 153, 34, 0.08); }
+.signal-row.signal-green { background: rgba(63, 185, 80, 0.05); }
+.signal-row.signal-error { background: rgba(139, 148, 158, 0.1); }
+
+.regression-banner {
+  background: rgba(248, 81, 73, 0.08);
+  border: 1px solid var(--red);
+  border-radius: 6px;
+  padding: 1rem;
+  margin: 1rem 0;
+}
+.regression-banner h2 { margin-top: 0; border: none; }
+
+.component-block {
+  margin-bottom: 1rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.component-block h3 { margin: 0 0 0.5rem; }
+.component-block h3 a { color: var(--blue); text-decoration: none; }
+.component-block h3 a:hover { text-decoration: underline; }
+
+.signal-detail {
+  margin: 0.75rem 0;
+  padding: 0.5rem 0.75rem;
+  border-left: 3px solid var(--border);
+}
+.signal-detail h3 { margin: 0 0 0.5rem; }
+.signal-detail dl { display: grid; grid-template-columns: 120px 1fr; gap: 0.25rem 0.5rem; margin: 0; }
+.signal-detail dt { color: var(--muted); font-weight: 600; }
+.signal-detail dd { margin: 0; }
+
+footer { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.85rem; }
+
+.empty { color: var(--muted); font-style: italic; }
+
+details > summary { cursor: pointer; color: var(--blue); padding: 0.25rem 0; }
+details[open] > summary { margin-bottom: 0.5rem; }
+
+a { color: var(--blue); }
+a:visited { color: var(--blue); }
+
+/* -------------------------------------------------------------------------
+   Compact signal grid (replaces the wide signal-table with description col).
+   Uses <details>/<summary> for inline expand instead of a separate detail
+   section. Column layout is a 6-col CSS grid; drawer spans full width.
+   ------------------------------------------------------------------------- */
+
+.signal-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  margin: 0.5rem 0;
+}
+
+.signal-list-header,
+.signal-summary {
+  display: grid;
+  grid-template-columns:
+    70px                      /* Status */
+    minmax(200px, 2fr)        /* Signal id */
+    minmax(80px, 1fr)         /* Value */
+    minmax(60px, 0.7fr)       /* Baseline */
+    minmax(100px, 2fr)        /* Regressions */
+    24px;                     /* Chevron */
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.9rem;
+}
+
+.signal-list-header {
+  background: rgba(110, 118, 129, 0.08);
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--border);
+}
+
+.signal-item {
+  border-bottom: 1px solid rgba(48, 54, 61, 0.4);
+}
+.signal-item:last-child { border-bottom: none; }
+
+.signal-summary {
+  cursor: pointer;
+  list-style: none;             /* Suppress default marker */
+  transition: background 0.08s ease;
+}
+.signal-summary::-webkit-details-marker { display: none; }
+.signal-summary::marker { display: none; }
+
+.signal-item:hover > .signal-summary { background: rgba(88, 166, 255, 0.04); }
+.signal-item.signal-red > .signal-summary   { background: rgba(248, 81, 73, 0.08); }
+.signal-item.signal-yellow > .signal-summary { background: rgba(210, 153, 34, 0.06); }
+.signal-item.signal-green > .signal-summary  { background: transparent; }
+.signal-item.signal-error > .signal-summary  { background: rgba(139, 148, 158, 0.08); }
+.signal-item.signal-informational > .signal-summary { background: transparent; }
+
+.sig-col {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sig-col-value,
+.sig-col-baseline {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.sig-col-chevron {
+  text-align: center;
+  color: var(--muted);
+  transition: transform 0.15s ease;
+  font-size: 0.85rem;
+}
+.signal-item[open] > .signal-summary .sig-col-chevron {
+  transform: rotate(90deg);
+  color: var(--blue);
+}
+
+.regression-flag {
+  color: var(--red);
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+/* --- Drawer (the inline-expanded content) --- */
+.signal-drawer {
+  background: rgba(110, 118, 129, 0.05);
+  padding: 0.75rem 1rem;
+  border-top: 1px solid rgba(48, 54, 61, 0.5);
+  font-size: 0.88rem;
+}
+
+.drawer-section {
+  margin-bottom: 0.6rem;
+}
+.drawer-section:last-child { margin-bottom: 0; }
+
+.drawer-label {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.2rem;
+}
+
+.drawer-body { color: var(--fg); line-height: 1.5; }
+
+.drawer-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.6rem 1rem;
+  margin-bottom: 0.6rem;
+}
+.drawer-cell-wide { grid-column: 1 / -1; }
+
+.drawer-query {
+  background: rgba(13, 17, 23, 0.8);
+  padding: 0.5rem 0.75rem;
+  border-radius: 4px;
+  overflow-x: auto;
+  margin: 0.2rem 0 0;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+.drawer-query code {
+  background: transparent;
+  padding: 0;
+  white-space: pre;
+}
+
+code.threshold {
+  background: rgba(110, 118, 129, 0.15);
+  padding: 0.1em 0.4em;
+  margin-right: 0.25rem;
+  font-size: 0.82rem;
+}
+
+.component-count { color: var(--muted); font-weight: 400; font-size: 0.85rem; }
+
+/* -------------------------------------------------------------------------
+   Hero carousel — 3 stacked cards, CSS-only radio switching.
+   ------------------------------------------------------------------------- */
+
+.hero {
+  margin: 1rem 0 2rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(88, 166, 255, 0.03);
+  padding: 1rem 1.25rem;
+}
+
+.hero-radio { position: absolute; opacity: 0; pointer-events: none; }
+
+.hero-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.hero-nav-arrows {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.hero-arrow {
+  cursor: pointer;
+  user-select: none;
+  padding: 0.3rem 0.75rem;
+  border-radius: 4px;
+  background: rgba(110, 118, 129, 0.1);
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.85rem;
+  transition: background 0.08s, color 0.08s;
+}
+.hero-arrow:hover { background: rgba(88, 166, 255, 0.15); color: var(--fg); }
+
+#hero-card-1:checked ~ .hero-nav .hero-arrow-1,
+#hero-card-2:checked ~ .hero-nav .hero-arrow-2,
+#hero-card-3:checked ~ .hero-nav .hero-arrow-3 {
+  background: var(--blue);
+  color: #0d1117;
+}
+
+.hero-nav-select-wrap {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.hero-nav-select {
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+/* --- Card visibility: show only the checked card --- */
+.hero-card {
+  display: none;
+  padding: 0.25rem 0;
+}
+#hero-card-1:checked ~ #hero-panel-1,
+#hero-card-2:checked ~ #hero-panel-2,
+#hero-card-3:checked ~ #hero-panel-3 {
+  display: block;
+}
+
+.hero-card-title {
+  margin: 0 0 0.2rem;
+  font-size: 1.1rem;
+  border: none;
+  padding: 0;
+}
+.hero-card-count { color: var(--muted); font-size: 0.85rem; font-weight: 400; }
+.hero-card-subtitle {
+  margin: 0 0 0.8rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+/* --- Hero card 1: heat-grid --- */
+.hero-heatgrid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.heat-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 180px) 1fr;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.heat-row-label {
+  color: var(--fg);
+  font-size: 0.9rem;
+  text-align: right;
+}
+.heat-row-label a { color: var(--fg); text-decoration: none; }
+.heat-row-label a:hover { color: var(--blue); text-decoration: underline; }
+
+.heat-row-chips {
+  display: flex;
+  gap: 3px;
+  flex-wrap: wrap;
+}
+
+.heat-chip {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  background: var(--info);
+  transition: transform 0.08s;
+  cursor: pointer;
+}
+.heat-chip:hover { transform: scale(1.2); }
+.heat-green { background: var(--green); }
+.heat-yellow { background: var(--yellow); }
+.heat-red { background: var(--red); }
+.heat-informational { background: var(--info); }
+.heat-error { background: var(--muted); }
+
+/* --- Hero card 2: top regressions --- */
+.hero-regression-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.hero-regression-item {
+  padding: 0.5rem 0.75rem;
+  border-radius: 4px;
+  border-left: 3px solid var(--border);
+  background: rgba(110, 118, 129, 0.05);
+}
+.hero-regression-red { border-left-color: var(--red); background: rgba(248, 81, 73, 0.08); }
+.hero-regression-yellow { border-left-color: var(--yellow); background: rgba(210, 153, 34, 0.06); }
+
+.hero-regression-head {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.2rem;
+}
+.hero-regression-component { color: var(--muted); font-size: 0.85rem; }
+.hero-regression-body {
+  color: var(--muted);
+  font-size: 0.85rem;
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.hero-regression-rules { color: var(--fg); }
+.hero-regression-sep { color: var(--border); }
+
+/* --- Hero card 3: summary --- */
+.hero-summary { display: flex; flex-direction: column; gap: 0.75rem; }
+.hero-summary-overall { font-size: 1rem; display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+.hero-summary-total { color: var(--muted); font-size: 0.88rem; }
+.hero-summary-counts {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  font-size: 0.88rem;
+}
+.hero-count {
+  padding: 0.2rem 0.6rem;
+  border-radius: 3px;
+  font-variant-numeric: tabular-nums;
+}
+.hero-count-green { background: rgba(63, 185, 80, 0.15); color: var(--green); }
+.hero-count-yellow { background: rgba(210, 153, 34, 0.15); color: var(--yellow); }
+.hero-count-red { background: rgba(248, 81, 73, 0.15); color: var(--red); }
+.hero-count-info { background: rgba(110, 118, 129, 0.15); color: var(--muted); }
+.hero-count-error { background: rgba(139, 148, 158, 0.15); color: var(--muted); }
+
+.hero-summary-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+.hero-summary-table th,
+.hero-summary-table td {
+  padding: 0.3rem 0.5rem;
+  text-align: left;
+  border-bottom: 1px solid rgba(48, 54, 61, 0.4);
+}
+.hero-summary-table th { color: var(--muted); font-weight: 600; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; }
+
+.hero-summary-mix {
+  display: flex;
+  gap: 2px;
+  flex-wrap: wrap;
+}
+.mix-dot { display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: var(--info); }
+.mix-green { background: var(--green); }
+.mix-yellow { background: var(--yellow); }
+.mix-red { background: var(--red); }
+.mix-informational { background: var(--info); }
+.mix-error { background: var(--muted); }
+
+/* --- Data-source badges (live / sink_recent / sink_stale / none) --- */
+.src-badge {
+  display: inline-block;
+  padding: 0.05em 0.4em;
+  border-radius: 3px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  vertical-align: middle;
+  margin-left: 0.4rem;
+  font-variant-numeric: tabular-nums;
+}
+.src-live {
+  background: rgba(63, 185, 80, 0.15);
+  color: var(--green);
+  border: 1px solid rgba(63, 185, 80, 0.4);
+}
+.src-sink-recent {
+  background: rgba(88, 166, 255, 0.12);
+  color: var(--blue);
+  border: 1px solid rgba(88, 166, 255, 0.35);
+}
+.src-sink-stale {
+  background: rgba(210, 153, 34, 0.12);
+  color: var(--yellow);
+  border: 1px solid rgba(210, 153, 34, 0.35);
+}
+.src-none {
+  background: rgba(139, 148, 158, 0.12);
+  color: var(--muted);
+  border: 1px solid rgba(139, 148, 158, 0.35);
+}
+
+/* Signals fed from sink-only paths get a subtle row tint so the eye can sort live vs historical at a glance */
+.signal-item.src-sink-recent > .signal-summary { border-left: 3px solid var(--blue); padding-left: calc(0.75rem - 3px); }
+.signal-item.src-sink-stale > .signal-summary { border-left: 3px solid var(--yellow); padding-left: calc(0.75rem - 3px); }
+.signal-item.src-none > .signal-summary { border-left: 3px solid var(--muted); padding-left: calc(0.75rem - 3px); opacity: 0.75; }

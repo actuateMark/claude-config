@@ -1,0 +1,917 @@
+{
+  "$schema_version": "1",
+  "description": "Operational signal catalog for the /dashboard-check skill. Source of truth for what gets monitored. Signals with enabled=false are in the catalog but not executed; they become active as the dashboard expands (Phase 1b, 2+). See /home/mork/.claude/plans/clever-tickling-swing.md.",
+  "signals": [
+    {
+      "id": "onboarder_activity_us",
+      "component": "autopatrol_onboarder",
+      "region": "us-west-2",
+      "source": "cw_log",
+      "query": "aws logs filter-log-events --region us-west-2 --log-group-name /aws/lambda/immix-autopatrol-onboarding --start-time <start_ms> --end-time <end_ms> --filter-pattern 'get_sites HTTP'",
+      "unit": "count_per_hour",
+      "description": "Activity-marker log count for the US onboarder Lambda. Counts 'get_sites HTTP' lines \u2014 reliable proof the Lambda got past the healthcheck and is fetching per-tenant site data (the actual work). Calibrated 2026-04-23: 'Fetched' fingerprint from the postmortem was wrong for the real log format.",
+      "regression_rules": [
+        "silent_drop",
+        "activity_marker_antipattern"
+      ],
+      "pair_with": "onboarder_lambda_invocations_us",
+      "thresholds": {
+        "yellow_below": 30,
+        "red_below": 5
+      },
+      "window_hours": 1,
+      "enabled": true,
+      "would_have_caught": "2026-04-23 onboarder silent early-return (PRIMARY acceptance test)"
+    },
+    {
+      "id": "onboarder_lambda_invocations_us",
+      "component": "autopatrol_onboarder",
+      "region": "us-west-2",
+      "source": "cw_metric",
+      "query": "aws cloudwatch get-metric-statistics --namespace AWS/Lambda --metric-name Invocations --dimensions Name=FunctionName,Value=immix-autopatrol-onboarding --region us-west-2 --period 3600 --statistics Sum",
+      "unit": "count_per_hour",
+      "description": "Lambda invocation count for the US onboarder. Pairs with onboarder_activity_us to detect the silent-early-return anti-pattern.",
+      "regression_rules": [],
+      "thresholds": {
+        "yellow_below": 8,
+        "red_below": 2
+      },
+      "window_hours": 1,
+      "enabled": true,
+      "would_have_caught": "Baseline anchor for onboarder_activity_us"
+    },
+    {
+      "id": "onboarder_activity_eu",
+      "component": "autopatrol_onboarder",
+      "region": "eu-west-1",
+      "source": "cw_log",
+      "query": "aws logs filter-log-events --region eu-west-1 --log-group-name /aws/lambda/immix-autopatrol-onboarding --start-time <start_ms> --end-time <end_ms> --filter-pattern 'Fetched'",
+      "unit": "count_per_hour",
+      "description": "Activity-marker log count for the EU onboarder Lambda.",
+      "regression_rules": [
+        "silent_drop",
+        "activity_marker_antipattern"
+      ],
+      "pair_with": "onboarder_lambda_invocations_eu",
+      "thresholds": {
+        "yellow_below": 5,
+        "red_below": 1
+      },
+      "window_hours": 1,
+      "enabled": false,
+      "would_have_caught": "Same-class incident in EU region"
+    },
+    {
+      "id": "onboarder_lambda_invocations_eu",
+      "component": "autopatrol_onboarder",
+      "region": "eu-west-1",
+      "source": "cw_metric",
+      "query": "aws cloudwatch get-metric-statistics --namespace AWS/Lambda --metric-name Invocations --dimensions Name=FunctionName,Value=immix-autopatrol-onboarding --region eu-west-1 --period 3600 --statistics Sum",
+      "unit": "count_per_hour",
+      "description": "Lambda invocation count for the EU onboarder.",
+      "regression_rules": [],
+      "thresholds": {
+        "yellow_below": 8,
+        "red_below": 2
+      },
+      "window_hours": 1,
+      "enabled": false
+    },
+    {
+      "id": "cleanup_lambda_dlq_depth",
+      "component": "autopatrol_cleanup",
+      "region": "us-west-2",
+      "source": "cw_sqs",
+      "query": "aws sqs get-queue-attributes --queue-url <CLEANUP_DLQ_URL> --attribute-names ApproximateNumberOfMessages",
+      "unit": "messages",
+      "description": "Dead-letter queue depth for the cleanup Lambda's SQS consumer. Should always be 0.",
+      "regression_rules": [
+        "silent_drop_inverse"
+      ],
+      "thresholds": {
+        "yellow_above": 0,
+        "red_above": 5
+      },
+      "window_hours": 0,
+      "enabled": false,
+      "would_have_caught": "Generic SQS consumer failure"
+    },
+    {
+      "id": "cleanup_lambda_errors",
+      "component": "autopatrol_cleanup",
+      "region": "us-west-2",
+      "source": "cw_log",
+      "query": "aws logs filter-log-events --region us-west-2 --log-group-name /aws/lambda/immix-autopatrol-schedule-cleanup --filter-pattern 'ERROR'",
+      "unit": "count_per_hour",
+      "description": "ERROR log count for cleanup Lambda. Should be 0 or very low.",
+      "regression_rules": [],
+      "thresholds": {
+        "yellow_above": 3,
+        "red_above": 10
+      },
+      "window_hours": 1,
+      "enabled": false
+    },
+    {
+      "id": "cleanup_lambda_would_patch_rate",
+      "component": "autopatrol_cleanup",
+      "region": "us-west-2",
+      "source": "cw_log",
+      "query": "aws logs filter-log-events --region us-west-2 --log-group-name /aws/lambda/immix-autopatrol-schedule-cleanup --filter-pattern 'would PATCH'",
+      "unit": "count_per_hour",
+      "description": "Count of 'would PATCH' log lines (fires only when CLEANUP_ENABLED=false OR DRY_RUN=true). Post-2026-04-23 flip, this should be ~0 because the gate is live. Lingering hits indicate something running in dark mode.",
+      "regression_rules": [
+        "new_pattern"
+      ],
+      "thresholds": {
+        "yellow_above": 5,
+        "red_above": 15
+      },
+      "window_hours": 1,
+      "enabled": false
+    },
+    {
+      "id": "cleanup_lambda_actual_disable_rate",
+      "component": "autopatrol_cleanup",
+      "region": "us-west-2",
+      "source": "cw_log",
+      "query": "aws logs filter-log-events --region us-west-2 --log-group-name /aws/lambda/immix-autopatrol-schedule-cleanup --filter-pattern 'disabled admin schedule'",
+      "unit": "count_per_hour",
+      "description": "Count of 'disabled admin schedule' log lines \u2014 actual PATCH fires against AutoPatrolSchedule.is_deleted=True. Post-flip (CLEANUP_ENABLED=true, 2026-04-23 17:59Z) this begins firing when a schedule is confirmed gone in Immix. Expected baseline: ~0 initially, small trickle as real stale schedules are caught. Spike >10/h = flap risk, stop and inspect. Manager-visible audit metric.",
+      "regression_rules": [
+        "new_pattern"
+      ],
+      "thresholds": {
+        "yellow_above": 10,
+        "red_above": 30
+      },
+      "window_hours": 1,
+      "enabled": false
+    },
+    {
+      "id": "cleanup_lambda_anomaly_reset_rate",
+      "component": "autopatrol_cleanup",
+      "region": "us-west-2",
+      "source": "cw_log",
+      "query": "aws logs filter-log-events --region us-west-2 --log-group-name /aws/lambda/immix-autopatrol-schedule-cleanup --filter-pattern 'anomaly: bucket='",
+      "unit": "count_per_hour",
+      "description": "Schedules that REACHED THRESHOLD but were NOT disabled because Immix reports them as Active/Awaiting. Counted via 'anomaly: bucket=...' log lines. This is the safety-net firing: our connector says the schedule is gone, but Immix says it's live. Elevated rate indicates an ongoing mismatch \u2014 either our puller error classifier is wrong OR Immix is reporting stale status OR the schedule is genuinely flapping Active\u2194Paused. Pairs with actual_disable_rate: if disables=0 but anomaly is high, the safety net is absorbing everything (under-disabling the real stale set). Manager-visible: this quantifies 'Immix-side issues blocking cleanup'.",
+      "regression_rules": [
+        "new_pattern"
+      ],
+      "thresholds": {
+        "yellow_above": 10,
+        "red_above": 30
+      },
+      "window_hours": 1,
+      "enabled": false
+    },
+    {
+      "id": "cleanup_lambda_anomaly_repeat_offenders_7d",
+      "component": "autopatrol_cleanup",
+      "region": "us-west-2",
+      "source": "cw_log",
+      "query": "aws logs filter-log-events --region us-west-2 --log-group-name /aws/lambda/immix-autopatrol-schedule-cleanup --start-time $(( $(date -u +%s) * 1000 - 7*86400*1000 )) --filter-pattern 'anomaly: bucket=' --query 'events[].message' --output text | grep -oE 'schedule [a-f0-9-]+' | sort | uniq -c | awk '$1 >= 2 {print}' | wc -l",
+      "unit": "schedule_count",
+      "description": "Count of DISTINCT schedule_ids that anomaly-reset 2+ times over 7 days. Non-zero means: the connector repeatedly believes a schedule is gone, but Immix repeatedly says active. Classic flappy-schedule / state-mismatch pattern \u2014 worth a targeted investigation into that specific schedule's Immix state vs our connector's state. Also surfaces Immix-side flake patterns (same schedule keeps reporting inconsistently). The single-count-unique signal (anomaly_reset_rate) tells you IF there's a problem; this one tells you WHERE to look.",
+      "regression_rules": [
+        "new_pattern"
+      ],
+      "thresholds": {
+        "yellow_above": 1,
+        "red_above": 5
+      },
+      "window_hours": 168,
+      "enabled": false
+    },
+    {
+      "id": "cleanup_chm_emit_24h",
+      "component": "autopatrol_cleanup",
+      "source": "nr_log",
+      "nrql": "SELECT count(*) FROM Log WHERE cluster_name='Connector-EKS' AND container_name LIKE '%chm-cronjob%' AND message LIKE '%emit_no_patrols_signal%' SINCE 24 hours ago",
+      "unit": "count_per_24h",
+      "description": "Validates emit pipeline upstream of cleanup Lambda. If this drops to 0 while patrols are running, connector-side emission regressed.",
+      "regression_rules": [
+        "silent_drop"
+      ],
+      "thresholds": {
+        "yellow_below": 10,
+        "red_below": 1
+      },
+      "window_hours": 24,
+      "enabled": false
+    },
+    {
+      "id": "patrol_exit_emit_rate",
+      "component": "autopatrol_cleanup",
+      "source": "nr_log",
+      "nrql": "SELECT count(*) FROM Log WHERE cluster_name='Connector-EKS' AND message LIKE '%patrol_exit%' AND message LIKE '%no_patrols%' SINCE 24 hours ago",
+      "unit": "count_per_24h",
+      "description": "Upstream signal for fleet-wide empty-queue. 2026-04-21 had all 4 active sites hit 0 simultaneously.",
+      "regression_rules": [
+        "silent_drop"
+      ],
+      "thresholds": {
+        "yellow_below": 50,
+        "red_below": 5
+      },
+      "window_hours": 24,
+      "enabled": false,
+      "would_have_caught": "2026-04-21 fleet-wide empty queue"
+    },
+    {
+      "id": "fleet_oomkills_24h",
+      "component": "vms-connector",
+      "source": "nr_k8s_container_sample",
+      "nrql": "SELECT count(*) FROM K8sContainerSample WHERE clusterName='Connector-EKS' AND reason='OOMKilled' SINCE 24 hours ago",
+      "unit": "count_per_24h",
+      "description": "Fleet-total OOMKills per day. Baseline ~100/24h; 4x surge 2026-04-23.",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_above": 200,
+        "red_above": 350
+      },
+      "window_hours": 24,
+      "enabled": true,
+      "would_have_caught": "2026-04-23 OOM surge (4x baseline)",
+      "freshness_threshold_hours": 48
+    },
+    {
+      "id": "fleet_new_oom_offender",
+      "component": "vms-connector",
+      "source": "nr_k8s_container_sample",
+      "nrql": "SELECT count(*) FROM K8sContainerSample WHERE clusterName='Connector-EKS' AND reason='OOMKilled' FACET containerName SINCE 24 hours ago LIMIT 15",
+      "unit": "facet_count",
+      "description": "Top-15 OOMKill containers. Regression rule flags any container in today's top-15 that wasn't in yesterday's or 7d-trailing top-15.",
+      "regression_rules": [
+        "new_pattern"
+      ],
+      "critical": true,
+      "window_hours": 24,
+      "enabled": true,
+      "would_have_caught": "2026-04-23 connector-20628 emergence at 87 events"
+    },
+    {
+      "id": "fleet_error_top15",
+      "component": "vms-connector",
+      "source": "nr_log",
+      "nrql": "SELECT count(*) FROM Log WHERE cluster_name='Connector-EKS' AND level='ERROR' FACET container_name SINCE 12 hours ago LIMIT 15",
+      "unit": "facet_count",
+      "description": "Top-15 containers by ERROR count. Per-container 3x-baseline flags yellow; new entrant flags red.",
+      "regression_rules": [
+        "new_pattern",
+        "baseline_drift"
+      ],
+      "critical": true,
+      "window_hours": 12,
+      "enabled": true,
+      "would_have_caught": "2026-04-17 error-container spike, 2026-04-20 cert-verify new containers"
+    },
+    {
+      "id": "streamid_guid_rejection_stage",
+      "component": "vms-connector",
+      "source": "nr_log",
+      "nrql": "SELECT count(*) FROM Log WHERE cluster_name='Connector-EKS' AND container_name LIKE 'staging-connector-%' AND message LIKE '%streamId%' AND message LIKE '%Guid%' SINCE 12 hours ago",
+      "unit": "count_per_12h",
+      "description": "streamId Guid rejection on :stage \u2014 the AP/VCH architectural bug. Should always be 0.",
+      "regression_rules": [],
+      "thresholds": {
+        "yellow_above": 0,
+        "red_above": 5
+      },
+      "window_hours": 12,
+      "enabled": true,
+      "would_have_caught": "2026-04-20 streamId-null bug fingerprint on stage"
+    },
+    {
+      "id": "nonetype_unpack_top_facet",
+      "component": "vms-connector",
+      "source": "nr_log",
+      "nrql": "SELECT count(*) FROM Log WHERE cluster_name='Connector-EKS' AND message LIKE '%cannot unpack non-iterable NoneType%' FACET container_name SINCE 12 hours ago LIMIT 10",
+      "unit": "facet_count",
+      "description": "NoneType unpack error FACET. Catches locus shifts (e.g. 2026-04-23 shift from connector pods to smtp-frame-receiver).",
+      "regression_rules": [
+        "new_pattern"
+      ],
+      "window_hours": 12,
+      "enabled": true,
+      "would_have_caught": "2026-04-23 NoneType shift to platform services"
+    },
+    {
+      "id": "connector_deploy_error_rate",
+      "component": "vms-connector",
+      "source": "nr_log",
+      "nrql": "SELECT count(*) FROM Log WHERE cluster_name='Connector-EKS' AND container_name='connector-deploy' AND level='ERROR' SINCE 12 hours ago",
+      "unit": "count_per_12h",
+      "description": "connector-deploy ERROR rate. Normally low; 11K outlier on 2026-04-17.",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_above": 100,
+        "red_above": 1000
+      },
+      "window_hours": 12,
+      "enabled": false,
+      "would_have_caught": "2026-04-17 connector-deploy 11K-error outlier"
+    },
+    {
+      "id": "queue_evalink_errors_12h",
+      "component": "alert-pipeline",
+      "source": "nr_log",
+      "nrql": "SELECT count(*) FROM Log WHERE cluster_name='Connector-EKS' AND container_name='queue-evalink-consumer' AND level='ERROR' SINCE 12 hours ago",
+      "unit": "count_per_12h",
+      "description": "Evalink queue-consumer ERROR rate. Baseline <20/12h. Thresholds recalibrated 2026-04-24 against 7d real data (14 buckets, min=142 max=1178 median=625). Yellow at 1200 catches new highs; red at 1800 = genuine 3x-median incident.",
+      "regression_rules": [],
+      "thresholds": {
+        "yellow_above": 1200,
+        "red_above": 1800
+      },
+      "window_hours": 12,
+      "enabled": true,
+      "would_have_caught": "2026-04-20 540-error breach (27x threshold)"
+    },
+    {
+      "id": "queue_eagle_eye_errors_12h",
+      "component": "alert-pipeline",
+      "source": "nr_log",
+      "nrql": "SELECT count(*) FROM Log WHERE cluster_name='Connector-EKS' AND container_name='queue-eagle-eye-consumer' AND level='ERROR' SINCE 12 hours ago",
+      "unit": "count_per_12h",
+      "description": "Eagle Eye queue-consumer ERROR rate.",
+      "regression_rules": [],
+      "thresholds": {
+        "yellow_above": 20,
+        "red_above": 100
+      },
+      "window_hours": 12,
+      "enabled": false,
+      "would_have_caught": "2026-04-17 290-error breach"
+    },
+    {
+      "id": "smtp_frame_receiver_errors_12h",
+      "component": "alert-pipeline",
+      "source": "nr_log",
+      "nrql": "SELECT count(*) FROM Log WHERE cluster_name='Connector-EKS' AND container_name='smtp-frame-receiver' AND level='ERROR' SINCE 12 hours ago",
+      "unit": "count_per_12h",
+      "description": "smtp-frame-receiver ERROR rate. Became top NoneType emitter 2026-04-23.",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_above": 50,
+        "red_above": 500
+      },
+      "window_hours": 12,
+      "enabled": false,
+      "would_have_caught": "2026-04-23 NoneType locus shift"
+    },
+    {
+      "id": "nr_issues_12h_count",
+      "component": "cross-cutting",
+      "source": "nr_issues",
+      "nrql": "SELECT count(*) FROM NrAiIssue WHERE accountId=3421145 SINCE 12 hours ago",
+      "unit": "count_per_12h",
+      "description": "NR Issues opened over 12h. Baseline ~20; spike to 127 on 2026-04-20 + 81 on 2026-04-21.",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_above": 40,
+        "red_above": 80
+      },
+      "window_hours": 12,
+      "enabled": false,
+      "would_have_caught": "2026-04-20 106-CRITICAL cascade, 2026-04-21 81-issue spike"
+    },
+    {
+      "id": "nr_issues_critical_12h",
+      "component": "cross-cutting",
+      "source": "nr_issues",
+      "nrql": "SELECT count(*) FROM NrAiIssue WHERE accountId=3421145 AND priority='CRITICAL' SINCE 12 hours ago",
+      "unit": "count_per_12h",
+      "description": "CRITICAL NR Issues opened over 12h.",
+      "regression_rules": [],
+      "thresholds": {
+        "yellow_above": 10,
+        "red_above": 30
+      },
+      "window_hours": 12,
+      "enabled": false
+    },
+    {
+      "id": "cluster_cpu_pct_avg",
+      "component": "k8s-cluster",
+      "source": "nr_k8s_node_sample",
+      "nrql": "SELECT average(allocatableCpuCoresUtilization) FROM K8sNodeSample WHERE clusterName='Connector-EKS' SINCE 1 hour ago",
+      "unit": "percent_allocatable",
+      "description": "Cluster-wide average CPU utilization. Release-induced CPU spike catcher.",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_above": 60,
+        "red_above": 80
+      },
+      "window_hours": 1,
+      "enabled": true
+    },
+    {
+      "id": "cluster_memory_pct_avg",
+      "component": "k8s-cluster",
+      "source": "nr_k8s_node_sample",
+      "nrql": "SELECT average(allocatableMemoryUtilization) FROM K8sNodeSample WHERE clusterName='Connector-EKS' SINCE 1 hour ago",
+      "unit": "percent_allocatable",
+      "description": "Cluster-wide average memory utilization.",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_above": 60,
+        "red_above": 80
+      },
+      "window_hours": 1,
+      "enabled": true
+    },
+    {
+      "id": "deployment_cpu_pct_vms",
+      "component": "vms-connector",
+      "source": "nr_k8s_container_sample",
+      "nrql": "SELECT average(requestedCpuCoresUtilization) FROM K8sContainerSample WHERE clusterName='Connector-EKS' AND containerName LIKE 'connector-%' SINCE 1 hour ago",
+      "unit": "percent_of_request",
+      "description": "vms-connector deployment average CPU utilization. Detects release-induced CPU regressions.",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_above": 120,
+        "red_above": 200
+      },
+      "window_hours": 1,
+      "enabled": true,
+      "would_have_caught": "Future release-induced CPU regression per user 2026-04-23"
+    },
+    {
+      "id": "deployment_memory_pct_vms",
+      "component": "vms-connector",
+      "source": "nr_k8s_container_sample",
+      "nrql": "SELECT average(memoryWorkingSetUtilization) FROM K8sContainerSample WHERE clusterName='Connector-EKS' AND containerName LIKE 'connector-%' SINCE 1 hour ago",
+      "unit": "percent_of_limit_wss",
+      "description": "vms-connector deployment average memory utilization.",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_above": 75,
+        "red_above": 90
+      },
+      "window_hours": 1,
+      "enabled": true
+    },
+    {
+      "id": "deployment_cpu_pct_inference",
+      "component": "inference-api",
+      "source": "nr_k8s_container_sample",
+      "nrql": "SELECT average(requestedCpuCoresUtilization) FROM K8sContainerSample WHERE clusterName='Connector-EKS' AND containerName IN ('inference-server', 'model-server') SINCE 1 hour ago",
+      "unit": "percent_of_request",
+      "description": "inference-api deployment average CPU utilization.",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_above": 120,
+        "red_above": 200
+      },
+      "window_hours": 1,
+      "enabled": true
+    },
+    {
+      "id": "deployment_memory_pct_inference",
+      "component": "inference-api",
+      "source": "nr_k8s_container_sample",
+      "nrql": "SELECT average(memoryWorkingSetUtilization) FROM K8sContainerSample WHERE clusterName='Connector-EKS' AND containerName IN ('inference-server', 'model-server') SINCE 1 hour ago",
+      "unit": "percent_of_limit_wss",
+      "description": "inference-api deployment average memory utilization.",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_above": 75,
+        "red_above": 90
+      },
+      "window_hours": 1,
+      "enabled": true
+    },
+    {
+      "id": "deployment_cpu_pct_admin",
+      "component": "actuate-admin",
+      "source": "nr_k8s_container_sample",
+      "nrql": "SELECT average(cpuUsedCoresVsLimitPercent) FROM K8sContainerSample WHERE clusterName='Connector-EKS' AND containerName LIKE '%actuate-admin%' SINCE 1 hour ago",
+      "unit": "percent",
+      "description": "actuate-admin deployment average CPU utilization.",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_above": 75,
+        "red_above": 90
+      },
+      "window_hours": 1,
+      "enabled": false
+    },
+    {
+      "id": "deployment_memory_pct_admin",
+      "component": "actuate-admin",
+      "source": "nr_k8s_container_sample",
+      "nrql": "SELECT average(memoryUsedVsLimitPercent) FROM K8sContainerSample WHERE clusterName='Connector-EKS' AND containerName LIKE '%actuate-admin%' SINCE 1 hour ago",
+      "unit": "percent",
+      "description": "actuate-admin deployment average memory utilization.",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_above": 75,
+        "red_above": 90
+      },
+      "window_hours": 1,
+      "enabled": false
+    },
+    {
+      "id": "deployment_cpu_pct_alert_pipeline",
+      "component": "alert-pipeline",
+      "source": "nr_k8s_container_sample",
+      "nrql": "SELECT average(cpuUsedCoresVsLimitPercent) FROM K8sContainerSample WHERE clusterName='Connector-EKS' AND (containerName LIKE 'queue-%' OR containerName='smtp-frame-receiver' OR containerName='clips-smtp-worker') SINCE 1 hour ago",
+      "unit": "percent",
+      "description": "Alert-pipeline deployments average CPU utilization.",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_above": 75,
+        "red_above": 90
+      },
+      "window_hours": 1,
+      "enabled": false
+    },
+    {
+      "id": "deployment_memory_pct_alert_pipeline",
+      "component": "alert-pipeline",
+      "source": "nr_k8s_container_sample",
+      "nrql": "SELECT average(memoryUsedVsLimitPercent) FROM K8sContainerSample WHERE clusterName='Connector-EKS' AND (containerName LIKE 'queue-%' OR containerName='smtp-frame-receiver' OR containerName='clips-smtp-worker') SINCE 1 hour ago",
+      "unit": "percent",
+      "description": "Alert-pipeline deployments average memory utilization.",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_above": 75,
+        "red_above": 90
+      },
+      "window_hours": 1,
+      "enabled": false
+    },
+    {
+      "id": "aws_daily_spend_delta",
+      "component": "cost",
+      "source": "aws_ce",
+      "query": "aws ce get-cost-and-usage --time-period Start=<start>,End=<end> --granularity DAILY --metrics UnblendedCost",
+      "unit": "usd_delta",
+      "description": "Daily total AWS spend delta vs prior day. Catches unexpected cost spikes.",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_above_pct": 15,
+        "red_above_pct": 30
+      },
+      "window_hours": 24,
+      "enabled": false
+    },
+    {
+      "id": "aws_top10_service_delta",
+      "component": "cost",
+      "source": "aws_ce",
+      "query": "aws ce get-cost-and-usage --time-period Start=<7d_ago>,End=<now> --granularity DAILY --metrics UnblendedCost --group-by Type=DIMENSION,Key=SERVICE",
+      "unit": "facet_usd",
+      "description": "Weekly per-service spend delta. Identifies services with abnormal cost growth.",
+      "regression_rules": [
+        "new_pattern",
+        "baseline_drift"
+      ],
+      "window_hours": 168,
+      "enabled": false
+    },
+    {
+      "id": "nr_apm_apdex_inference",
+      "component": "inference-api",
+      "source": "nr_transaction",
+      "nrql": "SELECT apdex(duration, t: 0.5) FROM Transaction WHERE appName LIKE '%inference%' SINCE 1 hour ago",
+      "unit": "apdex",
+      "description": "Apdex score for inference-api. <0.9 = user dissatisfaction.",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_below": 0.9,
+        "red_below": 0.75
+      },
+      "window_hours": 1,
+      "enabled": false
+    },
+    {
+      "id": "nr_apm_error_rate_inference",
+      "component": "inference-api",
+      "source": "nr_transaction",
+      "nrql": "SELECT percentage(count(*), WHERE error IS true) FROM Transaction WHERE appName LIKE '%inference%' SINCE 1 hour ago",
+      "unit": "percent",
+      "description": "Error rate for inference-api via APM.",
+      "regression_rules": [],
+      "thresholds": {
+        "yellow_above": 2,
+        "red_above": 5
+      },
+      "window_hours": 1,
+      "enabled": false
+    },
+    {
+      "id": "nr_apm_throughput_inference",
+      "component": "inference-api",
+      "source": "nr_transaction",
+      "nrql": "SELECT rate(count(*), 1 minute) FROM Transaction WHERE appName LIKE '%inference%' SINCE 1 hour ago",
+      "unit": "rpm",
+      "description": "Throughput (requests per minute) for inference-api.",
+      "regression_rules": [
+        "silent_drop",
+        "baseline_drift"
+      ],
+      "window_hours": 1,
+      "enabled": false
+    },
+    {
+      "id": "nr_apm_p95_latency_inference",
+      "component": "inference-api",
+      "source": "nr_transaction",
+      "nrql": "SELECT percentile(duration, 95) FROM Transaction WHERE appName LIKE '%inference%' SINCE 1 hour ago",
+      "unit": "seconds",
+      "description": "p95 latency for inference-api.",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "window_hours": 1,
+      "enabled": false
+    },
+    {
+      "id": "nr_apm_p99_latency_inference",
+      "component": "inference-api",
+      "source": "nr_transaction",
+      "nrql": "SELECT percentile(duration, 99) FROM Transaction WHERE appName LIKE '%inference%' SINCE 1 hour ago",
+      "unit": "seconds",
+      "description": "p99 latency for inference-api.",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "window_hours": 1,
+      "enabled": false
+    },
+    {
+      "id": "k8s_hpa_saturation",
+      "component": "k8s-cluster",
+      "source": "nr_k8s_hpa_sample",
+      "nrql": "SELECT count(*) FROM K8sHpaSample WHERE clusterName='Connector-EKS' AND currentReplicas = maxReplicas SINCE 1 hour ago FACET hpaName",
+      "unit": "facet_count",
+      "description": "HPAs sustained at max replicas \u2014 scaling ceiling hit. Release-capacity indicator.",
+      "regression_rules": [
+        "new_pattern"
+      ],
+      "window_hours": 1,
+      "enabled": false
+    },
+    {
+      "id": "argocd_out_of_sync_count",
+      "component": "k8s-cluster",
+      "source": "cw_log",
+      "query": "aws logs filter-log-events --region us-west-2 --log-group-name /aws/eks/Connector-EKS/argocd --filter-pattern 'OutOfSync'",
+      "unit": "count_per_hour",
+      "description": "ArgoCD apps in out-of-sync state. Catches deploy drift.",
+      "regression_rules": [],
+      "thresholds": {
+        "yellow_above": 0,
+        "red_above": 3
+      },
+      "window_hours": 1,
+      "enabled": false
+    },
+    {
+      "id": "cluster_pending_pods",
+      "component": "k8s-cluster",
+      "source": "nr_k8s_pod_sample",
+      "nrql": "SELECT uniqueCount(podName) FROM K8sPodSample WHERE clusterName='Connector-EKS' AND status='Pending' SINCE 5 minutes ago",
+      "unit": "count",
+      "description": "Pods stuck in Pending. Non-zero = scheduler can't place / no capacity / image pull stuck / unsatisfiable affinity. Brief blips during deploy churn are normal; sustained >0 is a problem. Initial threshold 2026-04-27: observed 39 baseline, set conservative thresholds to avoid daily-yellow noise; tighten after 14d of sink data.",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_above": 60,
+        "red_above": 100
+      },
+      "window_hours": 0.083,
+      "enabled": true,
+      "would_have_caught": "Capacity-pressure incidents where deploys can't start"
+    },
+    {
+      "id": "cluster_node_count",
+      "component": "k8s-cluster",
+      "source": "nr_k8s_node_sample",
+      "nrql": "SELECT uniqueCount(nodeName) FROM K8sNodeSample WHERE clusterName='Connector-EKS' SINCE 5 minutes ago",
+      "unit": "count",
+      "description": "Total node count in the cluster. Drift outside expected range = autoscaler runaway, ghost nodes, capacity drop. Initial calibration 2026-04-27: 110 nodes baseline. Thresholds: yellow if drops below 80 (~25%), red below 50 (~50%); also yellow if exceeds 200 (autoscaler runaway).",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_below": 80,
+        "red_below": 50,
+        "yellow_above": 200
+      },
+      "window_hours": 0.083,
+      "enabled": true,
+      "would_have_caught": "Autoscaler / capacity drift detection"
+    },
+    {
+      "id": "cluster_node_not_ready",
+      "component": "k8s-cluster",
+      "source": "nr_k8s_node_sample",
+      "nrql": "SELECT uniqueCount(nodeName) FROM K8sNodeSample WHERE clusterName='Connector-EKS' AND condition='Ready' AND status!='True' SINCE 5 minutes ago",
+      "unit": "count",
+      "description": "Nodes reporting Ready != True. Single NotReady can be drain prep; sustained or multiple = real capacity problem (workloads will start evicting).",
+      "regression_rules": [],
+      "thresholds": {
+        "yellow_above": 0,
+        "red_above": 2
+      },
+      "window_hours": 0.083,
+      "enabled": true,
+      "would_have_caught": "Node-failure cascades before workloads notice"
+    },
+    {
+      "id": "cluster_deployment_unavailable",
+      "component": "k8s-cluster",
+      "source": "nr_k8s_deployment_sample",
+      "nrql": "SELECT sum(deploymentDesiredReplicas - deploymentAvailableReplicas) FROM K8sDeploymentSample WHERE clusterName='Connector-EKS' SINCE 5 minutes ago",
+      "unit": "count",
+      "description": "Sum of (desired - available) replicas across all deployments. >0 means some deployment can't reach its target replica count — image pull failure, crashloop, anti-affinity stuck, capacity. Brief positive during rolling deploys is normal.",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_above": 5,
+        "red_above": 15
+      },
+      "window_hours": 0.083,
+      "enabled": true,
+      "would_have_caught": "Deployment stuck-at-replica-N regressions"
+    },
+    {
+      "id": "cluster_pod_restarts_5m",
+      "component": "k8s-cluster",
+      "source": "nr_k8s_container_sample",
+      "nrql": "SELECT max(restartCount) - min(restartCount) FROM K8sContainerSample WHERE clusterName='Connector-EKS' SINCE 5 minutes ago",
+      "unit": "count_per_5m",
+      "description": "Restart-count delta over a 5-min window. Fan-out cousin of fleet_oomkills_24h — catches crashloop bursts in real time vs. the 24h aggregate. NB: this is a single max-min across the fleet, not a sum; calibrate after observing real distribution. NRDB has no now() function so the original 'count restarts since now()-5m' formulation didn't work.",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_above": 5,
+        "red_above": 15
+      },
+      "window_hours": 0.083,
+      "enabled": false,
+      "would_have_caught": "Real-time crashloop detection (5m granularity vs. fleet_oomkills_24h). DISABLED 2026-04-27 pending NRQL design + threshold calibration; see cookbook §Per-source recipes for derivative-based alternatives."
+    },
+    {
+      "id": "cost_s3_daily_total",
+      "component": "cost",
+      "source": "ce_daily",
+      "query": "aws ce get-cost-and-usage --granularity DAILY --metrics UnblendedCost --filter service=S3",
+      "unit": "usd_per_day",
+      "description": "Total S3 daily spend across the prod account. Baseline ~$1100-1400/day (~$33-42k/mo). Sustained jumps >30% indicate new lifecycle rule gone wrong, sudden replication, or retention change.",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_above": 1800,
+        "red_above": 2500
+      },
+      "window_hours": 24,
+      "enabled": true,
+      "would_have_caught": "Baseline surface for Tier-3 S3 investigations (see 2026-04-23_s3-tier3-cost-investigation)",
+      "freshness_threshold_hours": 72
+    },
+    {
+      "id": "queue_eagle_eye_volume_12h",
+      "component": "alert-pipeline",
+      "source": "nr_log",
+      "nrql": "SELECT count(*) FROM Log WHERE cluster_name='Connector-EKS' AND container_name='queue-eagle-eye-consumer' SINCE 12 hours ago",
+      "unit": "count_per_12h",
+      "description": "Total log volume for queue-eagle-eye-consumer. Alert-pipeline health signal \u2014 catches 'consumer silently stopped processing'. Thresholds calibrated 2026-04-24 against 7d data (14 buckets, median 3910, min 781, max 15436).",
+      "thresholds": {
+        "yellow_below": 500,
+        "red_below": 50
+      },
+      "regression_rules": [
+        "silent_drop"
+      ],
+      "window_hours": 12,
+      "enabled": true,
+      "would_have_caught": "Future eagle-eye consumer outage; analog of the 2026-04-23 onboarder silent-early-return pattern"
+    },
+    {
+      "id": "queue_evalink_volume_12h",
+      "component": "alert-pipeline",
+      "source": "nr_log",
+      "nrql": "SELECT count(*) FROM Log WHERE cluster_name='Connector-EKS' AND container_name='queue-evalink-consumer' SINCE 12 hours ago",
+      "unit": "count_per_12h",
+      "description": "Total log volume for queue-evalink-consumer. Companion to queue_evalink_errors_12h \u2014 catches silent-drop that error-count can miss. Thresholds calibrated 2026-04-24 against 7d data (median 1925, min 1006, max 5238).",
+      "thresholds": {
+        "yellow_below": 500,
+        "red_below": 50
+      },
+      "regression_rules": [
+        "silent_drop"
+      ],
+      "window_hours": 12,
+      "enabled": true
+    },
+    {
+      "id": "frontel_puller_volume_12h",
+      "component": "alert-pipeline",
+      "source": "nr_log",
+      "nrql": "SELECT count(*) FROM Log WHERE cluster_name='Connector-EKS' AND container_name='frontel-puller' SINCE 12 hours ago",
+      "unit": "count_per_12h",
+      "description": "Total log volume for frontel-puller. Frontel VMS integration puller. Thresholds calibrated 2026-04-24 against 7d data (median 195, min 119, max 341).",
+      "thresholds": {
+        "yellow_below": 50,
+        "red_below": 5
+      },
+      "regression_rules": [
+        "silent_drop"
+      ],
+      "window_hours": 12,
+      "enabled": true
+    },
+    {
+      "id": "clips_smtp_worker_volume_12h",
+      "component": "alert-pipeline",
+      "source": "nr_log",
+      "nrql": "SELECT count(*) FROM Log WHERE cluster_name='Connector-EKS' AND container_name='clips-smtp-worker' SINCE 12 hours ago",
+      "unit": "count_per_12h",
+      "description": "Total log volume for clips-smtp-worker. Low-volume service (median 44 over 7d). A 0-bucket is not unusual; 2+ consecutive zeros should be. Thresholds intentionally generous \u2014 real concern is 0 for extended period.",
+      "thresholds": {
+        "yellow_below": 5,
+        "red_below": 0
+      },
+      "regression_rules": [],
+      "window_hours": 12,
+      "enabled": true
+    },
+    {
+      "id": "smtp_frame_receiver_volume_12h",
+      "component": "alert-pipeline",
+      "source": "nr_log",
+      "nrql": "SELECT count(*) FROM Log WHERE cluster_name='Connector-EKS' AND container_name='smtp-frame-receiver' SINCE 12 hours ago",
+      "unit": "count_per_12h",
+      "description": "Total log volume for smtp-frame-receiver. High-throughput service (7d median ~22.7M). Static thresholds uninformative; silent_drop rule catches 'stopped processing' (value < 10% of prior-day).",
+      "thresholds": {
+        "yellow_below": 5000000,
+        "red_below": 100000
+      },
+      "regression_rules": [
+        "silent_drop",
+        "baseline_drift"
+      ],
+      "window_hours": 12,
+      "enabled": true
+    },
+    {
+      "id": "clips_prod_volume_12h",
+      "component": "alert-pipeline",
+      "source": "nr_log",
+      "nrql": "SELECT count(*) FROM Log WHERE cluster_name='Connector-EKS' AND container_name='clips-prod' SINCE 12 hours ago",
+      "unit": "count_per_12h",
+      "description": "Total log volume for clips-prod. High-throughput service with clear day/night bimodal pattern (7d range 8.5M-24.6M). Silent-drop rule catches stopping entirely; baseline_drift will catch pattern shift.",
+      "thresholds": {
+        "yellow_below": 3000000,
+        "red_below": 500000
+      },
+      "regression_rules": [
+        "silent_drop",
+        "baseline_drift"
+      ],
+      "window_hours": 12,
+      "enabled": true
+    }
+  ]
+}

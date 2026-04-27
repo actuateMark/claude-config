@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ component }} — {{ snapshot_date }}</title>
+<style>{{ css }}</style>
+</head>
+<body>
+{% from "macros.j2" import status_badge, signal_item, signal_list_header %}
+
+<header>
+  <h1>{{ component }}</h1>
+  <p class="meta">Snapshot: <code>{{ snapshot_date }}</code> &middot; <a href="../index.html">← back to index</a></p>
+</header>
+
+<section>
+  <div class="signal-list">
+    {{ signal_list_header() }}
+    {% for ev in evaluations %}
+    {{ signal_item(ev) }}
+    {% endfor %}
+  </div>
+</section>
+
+<footer>
+  <p><a href="../index.html">← back to index</a></p>
+</footer>
+</body>
+</html>

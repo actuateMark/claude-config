@@ -1,0 +1,70 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 $HOME/.claude/hooks/session-claims-startup.py",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "python3 $HOME/.claude/hooks/daily-wrap-reminder.py",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "python3 $HOME/.claude/hooks/daily-scope-reminder.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "notify-send -u normal -t 5000 'Claude Code' 'Session ready for input' -i dialog-information",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "python3 $HOME/.claude/hooks/session-claims-heartbeat.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  },
+  "effortLevel": "high",
+  "permissions": {
+    "allow": [
+      "Bash(kubectl get *)",
+      "Bash(kubectl describe *)",
+      "Bash(kubectl logs *)",
+      "mcp__newrelic__execute_nrql_query",
+      "mcp__newrelic__list_available_new_relic_accounts",
+      "mcp__newrelic__list_recent_issues",
+      "mcp__newrelic__list_recent_logs",
+      "mcp__newrelic__list_entity_error_groups",
+      "Write(/home/mork/Documents/worklog/knowledgebase/**)",
+      "Edit(/home/mork/Documents/worklog/knowledgebase/**)",
+      "Read(/home/mork/Documents/worklog/knowledgebase/**)",
+      "mcp__atlassian__searchJiraIssuesUsingJql",
+      "mcp__atlassian__atlassianUserInfo",
+      "mcp__atlassian__getAccessibleAtlassianResources"
+    ],
+    "additionalDirectories": [
+      "/home/mork/Documents/worklog/knowledgebase"
+    ]
+  },
+  "sandbox": {
+    "filesystem": {
+      "allowWrite": [
+        "/home/mork/Documents/worklog/knowledgebase"
+      ]
+    }
+  }
+}

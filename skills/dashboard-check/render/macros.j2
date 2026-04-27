@@ -1,0 +1,186 @@
+{% macro status_badge(status) -%}
+<span class="badge badge-{{ status }}">{{ status | upper }}</span>
+{%- endmacro %}
+
+{% macro format_value(value, unit) -%}
+{% if value is none %}—{% elif value is mapping %}{{ value | length }} items{% else %}{{ value }}{% if unit %} {{ unit }}{% endif %}{% endif %}
+{%- endmacro %}
+
+{% macro format_thresholds(t) -%}
+{% if t %}
+{% for k, v in t.items() %}<code class="threshold">{{ k }}: {{ v }}</code>{% if not loop.last %} {% endif %}{% endfor %}
+{% else %}—{% endif %}
+{%- endmacro %}
+
+{# Compact grid row using <details> for inline expand. Summary is the scannable line;
+   drawer holds description, thresholds, source query, KB link, regressions. #}
+{% macro data_source_badge(ev) -%}
+{% if ev.data_source == "live" %}<span class="src-badge src-live" title="Fresh observation from this run">live</span>
+{% elif ev.data_source == "sink_recent" %}<span class="src-badge src-sink-recent" title="From sink ({{ '%.1f' % ev.freshness_hours }}h old)">hist {{ '%.0f' % ev.freshness_hours }}h</span>
+{% elif ev.data_source == "sink_stale" %}<span class="src-badge src-sink-stale" title="Stale: {{ '%.1f' % ev.freshness_hours }}h old, past freshness threshold">stale {{ '%.0f' % ev.freshness_hours }}h</span>
+{% elif ev.data_source == "none" %}<span class="src-badge src-none" title="No observation and no sink history">no data</span>
+{% endif %}
+{%- endmacro %}
+
+{% macro signal_item(ev) -%}
+<details class="signal-item signal-{{ ev.status }} src-{{ ev.data_source | replace('_', '-') }}"{% if ev.status == 'red' %} open{% endif %}>
+  <summary class="signal-summary">
+    <span class="sig-col sig-col-status">{{ status_badge(ev.status) }}</span>
+    <span class="sig-col sig-col-id"><code>{{ ev.signal_id }}</code> {{ data_source_badge(ev) }}</span>
+    <span class="sig-col sig-col-value">{{ format_value(ev.value, ev.unit) }}</span>
+    <span class="sig-col sig-col-baseline">{% if ev.baseline is not none %}{{ ev.baseline }}{% else %}—{% endif %}</span>
+    <span class="sig-col sig-col-regressions">{% if ev.regressions %}<span class="regression-flag">⚠ {{ ev.regressions | join(", ") }}</span>{% endif %}</span>
+    <span class="sig-col sig-col-chevron" aria-hidden="true">▸</span>
+  </summary>
+  <div class="signal-drawer">
+    {% if ev.description %}
+    <div class="drawer-section">
+      <div class="drawer-label">Description</div>
+      <div class="drawer-body">{{ ev.description }}</div>
+    </div>
+    {% endif %}
+    <div class="drawer-grid">
+      <div class="drawer-cell">
+        <div class="drawer-label">Data source</div>
+        <div class="drawer-body">
+          {{ data_source_badge(ev) }}
+          {% if ev.last_observed_at %}<br><small>last observed: <code>{{ ev.last_observed_at }}</code>{% if ev.freshness_hours is not none %} ({{ '%.1f' % ev.freshness_hours }}h ago){% endif %}</small>{% endif %}
+          {% if ev.history %}<br><small>history: {{ ev.history | length }} sink rows in trailing 7d window</small>{% endif %}
+        </div>
+      </div>
+      <div class="drawer-cell">
+        <div class="drawer-label">Thresholds</div>
+        <div class="drawer-body">{{ format_thresholds(ev.thresholds) }}</div>
+      </div>
+      {% if ev.paired_with %}
+      <div class="drawer-cell">
+        <div class="drawer-label">Paired with</div>
+        <div class="drawer-body"><code>{{ ev.paired_with }}</code></div>
+      </div>
+      {% endif %}
+      {% if ev.source %}
+      <div class="drawer-cell">
+        <div class="drawer-label">Source</div>
+        <div class="drawer-body"><code>{{ ev.source }}</code></div>
+      </div>
+      {% endif %}
+      {% if ev.would_have_caught %}
+      <div class="drawer-cell drawer-cell-wide">
+        <div class="drawer-label">Would have caught</div>
+        <div class="drawer-body">{{ ev.would_have_caught }}</div>
+      </div>
+      {% endif %}
+    </div>
+    {% if ev.query %}
+    <div class="drawer-section">
+      <div class="drawer-label">Query</div>
+      <pre class="drawer-query"><code>{{ ev.query }}</code></pre>
+    </div>
+    {% endif %}
+    {% if ev.kb_link %}
+    <div class="drawer-section">
+      <div class="drawer-label">Rationale</div>
+      <div class="drawer-body"><a href="{{ ev.kb_link }}">{{ ev.kb_link }}</a></div>
+    </div>
+    {% endif %}
+    {% if ev.notes %}
+    <div class="drawer-section">
+      <div class="drawer-label">Notes</div>
+      <div class="drawer-body">{{ ev.notes }}</div>
+    </div>
+    {% endif %}
+  </div>
+</details>
+{%- endmacro %}
+
+{# Header row with column labels — sits at the top of each signal-list block to mimic table headers #}
+{% macro signal_list_header() -%}
+<div class="signal-list-header">
+  <span class="sig-col sig-col-status">Status</span>
+  <span class="sig-col sig-col-id">Signal</span>
+  <span class="sig-col sig-col-value">Value</span>
+  <span class="sig-col sig-col-baseline">Baseline</span>
+  <span class="sig-col sig-col-regressions">Regressions</span>
+  <span class="sig-col sig-col-chevron"></span>
+</div>
+{%- endmacro %}
+
+{# --- Hero cards for the index page --- #}
+
+{# Card 1: Status heat-grid. One chip per evaluated signal, colored by current status.
+   Until per-day history is available, each chip shows only today's state. #}
+{% macro hero_heatgrid(by_component) -%}
+<div class="hero-heatgrid">
+  {% for component, evs in by_component.items() %}
+  <div class="heat-row">
+    <div class="heat-row-label"><a href="components/{{ component }}.html">{{ component }}</a></div>
+    <div class="heat-row-chips">
+      {% for ev in evs %}
+      <a class="heat-chip heat-{{ ev.status }}" href="components/{{ component }}.html#{{ ev.signal_id }}" title="{{ ev.signal_id }} ({{ ev.status }})">&nbsp;</a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{%- endmacro %}
+
+{# Card 2: Top regressions today (ranked list of evaluations with regressions). #}
+{% macro hero_regressions(regressions) -%}
+{% if regressions %}
+<ol class="hero-regression-list">
+  {% for ev in regressions %}
+  <li class="hero-regression-item hero-regression-{{ ev.status }}">
+    <div class="hero-regression-head">
+      {{ status_badge(ev.status) }}
+      <code>{{ ev.signal_id }}</code>
+      <span class="hero-regression-component">({{ ev.component }})</span>
+    </div>
+    <div class="hero-regression-body">
+      <span class="hero-regression-rules">{{ ev.regressions | join(", ") }}</span>
+      <span class="hero-regression-sep">·</span>
+      <span>value={{ ev.value }}</span>
+      {% if ev.baseline is not none %}<span>baseline={{ ev.baseline }}</span>{% endif %}
+    </div>
+  </li>
+  {% endfor %}
+</ol>
+{% else %}
+<p class="empty">No regressions detected this run. 🎉</p>
+{% endif %}
+{%- endmacro %}
+
+{# Card 3: Overall summary — status counts + component breakdown. #}
+{% macro hero_summary(evaluations, by_component, overall) -%}
+<div class="hero-summary">
+  <div class="hero-summary-overall">
+    Overall: {{ status_badge(overall) }}
+    <span class="hero-summary-total">{{ evaluations | length }} signals evaluated</span>
+  </div>
+  <div class="hero-summary-counts">
+    {% set count_green = evaluations | selectattr("status", "equalto", "green") | list | length %}
+    {% set count_yellow = evaluations | selectattr("status", "equalto", "yellow") | list | length %}
+    {% set count_red = evaluations | selectattr("status", "equalto", "red") | list | length %}
+    {% set count_error = evaluations | selectattr("status", "equalto", "error") | list | length %}
+    {% set count_info = evaluations | selectattr("status", "equalto", "informational") | list | length %}
+    <span class="hero-count hero-count-green">{{ count_green }} green</span>
+    <span class="hero-count hero-count-yellow">{{ count_yellow }} yellow</span>
+    <span class="hero-count hero-count-red">{{ count_red }} red</span>
+    {% if count_error %}<span class="hero-count hero-count-error">{{ count_error }} error</span>{% endif %}
+    {% if count_info %}<span class="hero-count hero-count-info">{{ count_info }} info</span>{% endif %}
+  </div>
+  <table class="hero-summary-table">
+    <thead><tr><th>Component</th><th>Signals</th><th>Status mix</th></tr></thead>
+    <tbody>
+      {% for component, evs in by_component.items() %}
+      <tr>
+        <td><a href="components/{{ component }}.html">{{ component }}</a></td>
+        <td>{{ evs | length }}</td>
+        <td class="hero-summary-mix">
+          {% for ev in evs %}<span class="mix-dot mix-{{ ev.status }}" title="{{ ev.signal_id }}"></span>{% endfor %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{%- endmacro %}
