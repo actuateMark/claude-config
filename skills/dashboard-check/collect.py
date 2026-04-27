@@ -25,6 +25,7 @@ import argparse
 import json
 import logging
 import os
+import subprocess
 import sys
 import time
 import urllib.request
@@ -240,6 +241,97 @@ AWS_DISPATCH: dict[str, callable] = {
 }
 
 
+# --- minipc-local collection ---------------------------------------------
+#
+# Signals about the host this collector is running on. Only meaningful when
+# collect.py runs on the minipc itself (which it does — invoked by the
+# rebuild-blog/run-dashboard-check timers). For laptop dev runs these
+# signals will reflect the laptop's own systemd state — fine for testing.
+
+def _run_local(cmd: list[str], timeout: int = 5) -> str:
+    """Run a local command, return stdout (or raise)."""
+    return subprocess.check_output(cmd, text=True, timeout=timeout, stderr=subprocess.DEVNULL)
+
+
+def local_failed_user_units() -> int | dict:
+    """Count of failed --user systemd units. Returns FACET dict if any are
+    failing (so render shows WHICH ones), scalar 0 otherwise."""
+    out = _run_local([
+        "systemctl", "--user", "list-units", "--state=failed",
+        "--no-legend", "--no-pager", "--plain"
+    ])
+    units = {}
+    for line in out.strip().splitlines():
+        # Format: <unit> <load> <active> <sub> <description>
+        parts = line.split(None, 4)
+        if len(parts) >= 1 and parts[0]:
+            units[parts[0]] = 1
+    return units if units else 0
+
+
+def local_failed_system_units() -> int | dict:
+    """Count of failed system-wide systemd units. Same shape as above."""
+    out = _run_local([
+        "sudo", "-n", "systemctl", "list-units", "--state=failed",
+        "--no-legend", "--no-pager", "--plain"
+    ])
+    units = {}
+    for line in out.strip().splitlines():
+        parts = line.split(None, 4)
+        if len(parts) >= 1 and parts[0]:
+            units[parts[0]] = 1
+    return units if units else 0
+
+
+def local_unit_restart_count_24h() -> int:
+    """Total times any tracked --user unit has restarted in last 24h.
+
+    Reads journalctl for `Started` or `Failed with result` lines from the
+    rebuild/dashboard-check/minipc-app timers — anything more than a couple
+    is a sign the unit is flapping.
+    """
+    cutoff = "24 hours ago"
+    units = ["minipc-app.service", "rebuild-blog.service", "rebuild-quartz.service",
+             "run-dashboard-check.service", "collect-repos.service"]
+    total = 0
+    for u in units:
+        try:
+            out = _run_local(
+                ["journalctl", "--user", "-u", u, "--since", cutoff, "--no-pager",
+                 "--output=cat", "-q"]
+            )
+            # Count "Started" lines as a proxy for unit invocations
+            total += sum(1 for line in out.splitlines() if "Started" in line or "Starting" in line)
+        except subprocess.CalledProcessError:
+            continue
+    return total
+
+
+MINIPC_LOCAL_DISPATCH: dict[str, callable] = {
+    "minipc_failed_user_units": local_failed_user_units,
+    "minipc_failed_system_units": local_failed_system_units,
+    "minipc_unit_starts_24h": local_unit_restart_count_24h,
+}
+
+
+def collect_minipc_local_signals(signals: list[dict]) -> dict:
+    out: dict = {}
+    for sig in signals:
+        sid = sig["id"]
+        fn = MINIPC_LOCAL_DISPATCH.get(sid)
+        if fn is None:
+            log.warning("skip %s: no minipc_local dispatcher", sid)
+            continue
+        try:
+            value = fn()
+            log.info("loc %-40s = %s", sid, _short(value))
+        except Exception as e:
+            log.error("loc %-40s FAILED: %s", sid, e)
+            value = None
+        out[sid] = value
+    return out
+
+
 def collect_aws_signals(signals: list[dict], profile: str) -> tuple[dict, dict]:
     """Returns (cw_results, ce_results). cw_results combines cw_log + cw_metric."""
     cw: dict = {}
@@ -285,17 +377,21 @@ def main() -> int:
     enabled = [s for s in catalog["signals"] if s.get("enabled")]
     nr_signals = [s for s in enabled if s["source"].startswith("nr_")]
     aws_signals = [s for s in enabled if s["source"].startswith(("cw_", "ce_"))]
-    log.info("collecting %d NR + %d AWS signals (catalog: %d enabled / %d total)",
-             len(nr_signals), len(aws_signals), len(enabled), len(catalog["signals"]))
+    local_signals = [s for s in enabled if s["source"] == "minipc_local"]
+    log.info("collecting %d NR + %d AWS + %d local signals (catalog: %d enabled / %d total)",
+             len(nr_signals), len(aws_signals), len(local_signals),
+             len(enabled), len(catalog["signals"]))
 
     nr_out = collect_nr_signals(nr_signals)
     cw_out, ce_out = collect_aws_signals(aws_signals, args.aws_profile)
+    local_out = collect_minipc_local_signals(local_signals)
 
     (args.tempdir / "nr_results.json").write_text(json.dumps(nr_out, indent=2))
     (args.tempdir / "cw_results.json").write_text(json.dumps(cw_out, indent=2))
     (args.tempdir / "ce_results.json").write_text(json.dumps(ce_out, indent=2))
+    (args.tempdir / "local_results.json").write_text(json.dumps(local_out, indent=2))
 
-    all_obs = {**nr_out, **cw_out, **ce_out}
+    all_obs = {**nr_out, **cw_out, **ce_out, **local_out}
     n_total = len(all_obs)
     n_failed = sum(1 for v in all_obs.values() if v is None)
     log.info("wrote %d signals to %s (%d failed)", n_total, args.tempdir, n_failed)

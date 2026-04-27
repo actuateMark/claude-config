@@ -792,6 +792,60 @@
       "would_have_caught": "Real-time crashloop detection (5m granularity vs. fleet_oomkills_24h). DISABLED 2026-04-27 pending NRQL design + threshold calibration; see cookbook §Per-source recipes for derivative-based alternatives."
     },
     {
+      "id": "minipc_failed_user_units",
+      "component": "minipc-host",
+      "source": "minipc_local",
+      "command": "systemctl --user list-units --state=failed --no-legend --no-pager --plain",
+      "unit": "facet_count",
+      "description": "Failed user-systemd units on the minipc. Returns FACET dict {unit_name: 1} so detail page lists exactly WHICH units are failing. Standing alarm — any non-empty result is yellow, multiple is red.",
+      "regression_rules": [
+        "new_pattern"
+      ],
+      "thresholds": {
+        "yellow_above": 0,
+        "red_above": 2
+      },
+      "window_hours": 0.083,
+      "enabled": true,
+      "would_have_caught": "Silent failure of any timer-driven unit (rebuild-blog, run-dashboard-check, etc.)"
+    },
+    {
+      "id": "minipc_failed_system_units",
+      "component": "minipc-host",
+      "source": "minipc_local",
+      "command": "sudo -n systemctl list-units --state=failed --no-legend --no-pager --plain",
+      "unit": "facet_count",
+      "description": "Failed system-wide units on the minipc (caddy, docker, tailscaled, etc.). Same shape as the user variant. systemd-networkd-wait-online tends to flap on boot — mask it via phase script if it's the only chronic offender.",
+      "regression_rules": [
+        "new_pattern"
+      ],
+      "thresholds": {
+        "yellow_above": 1,
+        "red_above": 3
+      },
+      "window_hours": 0.083,
+      "enabled": true,
+      "would_have_caught": "Caddy / Docker / Tailscaled drops"
+    },
+    {
+      "id": "minipc_unit_starts_24h",
+      "component": "minipc-host",
+      "source": "minipc_local",
+      "command": "journalctl --user -u <units> --since 24 hours ago | count Started lines",
+      "unit": "count_per_24h",
+      "description": "How many times the minipc's tracked timers fired in the last 24h. Sum across minipc-app, rebuild-blog, rebuild-quartz, run-dashboard-check, collect-repos. Normal: ~336 (every 5 min × 5 timers ÷ 30s grace). Drops indicate timer wedge or daemon-reload not picking up. Initial threshold conservative; recalibrate after 7d.",
+      "regression_rules": [
+        "silent_drop"
+      ],
+      "thresholds": {
+        "yellow_below": 200,
+        "red_below": 100
+      },
+      "window_hours": 24,
+      "enabled": true,
+      "would_have_caught": "Timer wedge / linger lost / user session not active"
+    },
+    {
       "id": "cost_s3_daily_total",
       "component": "cost",
       "source": "ce_daily",
