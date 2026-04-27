@@ -3,7 +3,85 @@
 {%- endmacro %}
 
 {% macro format_value(value, unit) -%}
-{% if value is none %}—{% elif value is mapping %}{{ value | length }} items{% else %}{{ value }}{% if unit %} {{ unit }}{% endif %}{% endif %}
+{%- if value is none -%}—
+{%- elif value is mapping -%}
+{%- if value | length == 0 -%}{} (empty)
+{%- else -%}
+{{ value | length }} items <span class="facet-preview">{% set ns = namespace(n=0) %}{% for k, v in value | dictsort(by="value") | reverse %}{% if ns.n < 3 %}<code>{{ k }}={{ v }}</code>{% if not loop.last and ns.n < 2 %}, {% endif %}{% set ns.n = ns.n + 1 %}{% endif %}{% endfor %}{% if value | length > 3 %}, …{% endif %}</span>
+{%- endif -%}
+{%- else -%}{{ value }}{% if unit %} {{ unit }}{% endif %}
+{%- endif -%}
+{%- endmacro %}
+
+{# Full breakdown of a FACET dict: every key with today's value, prior-day
+   value, delta, and a 'new'/'gone' flag. Renders as a sortable table in the
+   drawer so 'red because 15 items' becomes actionable. #}
+{% macro facet_breakdown(value, prior_value) -%}
+{% if value is mapping and value | length > 0 -%}
+{%- set today_keys = value.keys() | list -%}
+{# Only treat prior as comparable when it's also a mapping. If prior was a
+   scalar (e.g. signal shape changed from count → FACET), don't flag every
+   key as 'gone' — there's just no prior dict to diff against. #}
+{%- set has_prior_dict = prior_value is mapping -%}
+{%- set prior_keys = prior_value.keys() | list if has_prior_dict else [] -%}
+{%- set all_keys = (today_keys + prior_keys) | unique | list -%}
+<table class="facet-table">
+  <thead>
+    <tr>
+      <th>Key</th>
+      <th class="num">Today</th>
+      <th class="num">Prior</th>
+      <th class="num">Δ</th>
+      <th>Flag</th>
+    </tr>
+  </thead>
+  <tbody>
+    {%- set rows = [] -%}
+    {%- for k in all_keys -%}
+      {%- set t = value.get(k) -%}
+      {%- set p = prior_value.get(k) if has_prior_dict else none -%}
+      {%- set t_num = t if t is number else 0 -%}
+      {%- set p_num = p if p is number else 0 -%}
+      {%- set delta = t_num - p_num -%}
+      {# is_new / is_gone only meaningful when we have a prior dict to compare.
+         is_new: in today but not in prior (only flag if has_prior_dict).
+         is_gone: in prior but not in today (key dropped off). #}
+      {%- set is_new = has_prior_dict and t is not none and p is none -%}
+      {%- set is_gone = has_prior_dict and t is none and p is not none -%}
+      {# Sort key (first elem) is always numeric — avoids None-vs-int errors. #}
+      {%- set _ = rows.append((t_num, k, t, p, delta, is_new, is_gone)) -%}
+    {%- endfor -%}
+    {%- for t_sort, k, t, p, delta, is_new, is_gone in rows | sort(attribute=0, reverse=true) -%}
+    <tr class="{% if is_new %}facet-new{% elif is_gone %}facet-gone{% endif %}">
+      <td><code>{{ k }}</code></td>
+      <td class="num">{% if t is none %}—{% else %}{{ t }}{% endif %}</td>
+      <td class="num">{% if p is none %}—{% else %}{{ p }}{% endif %}</td>
+      <td class="num facet-delta {% if delta > 0 %}delta-up{% elif delta < 0 %}delta-down{% endif %}">{% if t is none or p is none %}—{% else %}{% if delta > 0 %}+{% endif %}{{ delta }}{% endif %}</td>
+      <td>{% if is_new %}<span class="facet-new-flag">✨ new</span>{% elif is_gone %}<span class="facet-gone-flag">⊘ gone</span>{% endif %}</td>
+    </tr>
+    {%- endfor %}
+  </tbody>
+</table>
+{%- endif -%}
+{%- endmacro %}
+
+{# Tiny inline sparkline from history rows. For scalar signals only. #}
+{% macro mini_sparkline(history, max_points=20) -%}
+{% set numeric = history | selectattr("value", "number") | list %}
+{% if numeric | length >= 2 %}
+{%- set values = numeric[-max_points:] | map(attribute="value") | list -%}
+{%- set vmax = values | max -%}
+{%- set vmin = values | min -%}
+{%- set vrange = (vmax - vmin) if vmax > vmin else 1 -%}
+<svg class="mini-spark" viewBox="0 0 100 24" preserveAspectRatio="none" aria-label="trailing values">
+  <polyline points="
+    {%- for v in values -%}
+    {{ '%.2f' % (loop.index0 * 100 / (values | length - 1)) }},{{ '%.2f' % (22 - ((v - vmin) / vrange * 20)) }}
+    {% endfor -%}
+  " />
+</svg>
+<span class="spark-meta">min {{ vmin }} · max {{ vmax }} · n {{ values | length }}</span>
+{% endif %}
 {%- endmacro %}
 
 {% macro format_thresholds(t) -%}
@@ -87,6 +165,30 @@
     <div class="drawer-section">
       <div class="drawer-label">Notes</div>
       <div class="drawer-body">{{ ev.notes }}</div>
+    </div>
+    {% endif %}
+    {# FACET breakdown — only meaningful when value is a dict #}
+    {% if ev.value is mapping and ev.value | length > 0 %}
+    <div class="drawer-section">
+      <div class="drawer-label">Full breakdown ({{ ev.value | length }} keys)</div>
+      <div class="drawer-body">{{ facet_breakdown(ev.value, ev.prior_value) }}</div>
+    </div>
+    {% elif ev.history and ev.history | length >= 2 %}
+    <div class="drawer-section">
+      <div class="drawer-label">Trailing window</div>
+      <div class="drawer-body">{{ mini_sparkline(ev.history) }}</div>
+    </div>
+    {% endif %}
+    {# Today vs prior, for scalar values only — dict diffs live in the breakdown above #}
+    {% if ev.prior_value is not none and ev.prior_value is not mapping and ev.value is not mapping %}
+    <div class="drawer-section">
+      <div class="drawer-label">Prior-day comparison</div>
+      <div class="drawer-body">today <code>{{ ev.value }}</code> · prior <code>{{ ev.prior_value }}</code>
+        {% if ev.value is number and ev.prior_value is number %}
+          {% set delta = ev.value - ev.prior_value %}
+          · Δ <span class="facet-delta {% if delta > 0 %}delta-up{% elif delta < 0 %}delta-down{% endif %}">{% if delta > 0 %}+{% endif %}{{ delta }}</span>
+        {% endif %}
+      </div>
     </div>
     {% endif %}
   </div>

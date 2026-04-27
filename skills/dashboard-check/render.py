@@ -71,6 +71,8 @@ class Evaluation:
     last_observed_at: str | None = None     # ISO timestamp of the value being rendered
     history: list[dict] = field(default_factory=list)  # trailing sink rows for sparklines
     freshness_hours: float | None = None    # hours since last observation
+    # Today vs prior — for drawer diff rendering
+    prior_value: Any = None                 # most recent prior-day snapshot's value for this signal
 
 
 def load_signals() -> list[dict]:
@@ -305,6 +307,7 @@ def evaluate_signals(
             last_observed_at=last_obs_at,
             history=trailing_7d,
             freshness_hours=freshness,
+            prior_value=prior_value,
         )
         out.append(ev)
     return out
