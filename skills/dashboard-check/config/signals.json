@@ -1008,15 +1008,15 @@
       "component": "code-health",
       "source": "git_local",
       "repos": ["all"],
-      "command": "vulture <repo>  (count = lines of stdout findings)",
+      "command": "vulture <repo> --min-confidence 80 (count = lines of stdout findings)",
       "unit": "facet_count",
-      "description": "Likely-unused functions, classes, vars per repo (vulture findings). Has high false-positive rate (decorators, dynamically-resolved names, test fixtures, Django ORM patterns) so calibrate generously and treat as a *trend* signal rather than absolute. FACET dict {repo_name: count}. Day-1 baselines (2026-04-29): actuate_admin=3308 (Django magic dominates), actuate-libraries=801, vms-connector=191, autopatrol-server=93, connector_deployer=85, actuate-inference-api=57, autopatrol_onboarder=15. Thresholds set at ~2x current libs (highest non-Django) so a real refactor regression flags but Django magic doesn't.",
+      "description": "Likely-unused functions, classes, vars per repo at >=80% vulture confidence. The default 60% bucket is dominated by Django framework FPs (Meta classes, migrations, apps.py, model field declarations, enum members) — see [[2026-04-29_minipc-api-surface]] / collect.py for the FP-cut analysis. Bumping to 80% drops actuate_admin from 3308 to 41 (98% noise reduction) while preserving rank order across all 16 repos. Day-1 baselines (2026-04-29 conf80): connector_deployer=45, actuate-libraries=45, actuate_admin=41, vms-connector=34, actuate-watchman=22, queue_consumer=11, actuate_ailink=8, autopatrol-server=8, autopatrol_onboarder=6, actuate_monitoring_api=6, ds-terraform-eks-v2=3, others=0-2. Thresholds set at ~2x current top-of-set so a real refactor regression flags but normal scale doesn't.",
       "regression_rules": [
         "baseline_drift"
       ],
       "thresholds": {
-        "yellow_above": 1500,
-        "red_above": 5000
+        "yellow_above": 100,
+        "red_above": 250
       },
       "window_hours": 24,
       "enabled": true,

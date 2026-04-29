@@ -512,13 +512,27 @@ def repo_ruff_unused_imports(repo_path: Path) -> int:
 
 
 def repo_vulture_dead_code(repo_path: Path) -> int:
-    """Count of vulture findings (likely-unused functions / classes / vars).
+    """Count of high-confidence vulture findings (likely-unused symbols).
 
-    vulture exit codes: 0=no findings, 1=findings, 2=usage error, 3=findings
-    + errors. Treat 0/1/3 as success; one line of stdout per finding.
+    `--min-confidence 80` drops Django framework false-positives (Meta
+    classes, model field declarations, migration ops, apps.py, enum
+    members) which dominate the default 60%-confidence output:
+
+      repo                    conf60  conf80   FPs cut
+      actuate_admin            3308     41    98%
+      actuate_monitoring_api    499      6    98%
+      actuate-inference-api      57      2    96%
+      actuate-libraries         801     45    94%
+      vms-connector             191     34    82%
+
+    The 80%-confidence bucket is a meaningfully ranked actionable
+    surface; default 60% is signal-drowning noise on Django-shaped repos.
+
+    vulture exit codes: 0=no findings, 1=findings, 2=usage error,
+    3=findings + errors. Treat 0/1/3 as success; one line per finding.
     """
     proc = subprocess.run(
-        ["vulture", str(repo_path)],
+        ["vulture", str(repo_path), "--min-confidence", "80"],
         capture_output=True, text=True, timeout=120,
     )
     if proc.returncode not in (0, 1, 3):
