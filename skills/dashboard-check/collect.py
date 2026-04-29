@@ -328,6 +328,14 @@ MINIPC_LOCAL_DISPATCH: dict[str, callable] = {
 REPOS_CONFIG_PATH = Path.home() / ".config" / "minipc-repo-cron" / "repos.json"
 WORK_ROOT = Path.home() / "work"
 
+# Ensure subprocess can find user-local Python tools (radon, ruff, vulture
+# installed via `uv tool install`). The cron entrypoint already exports
+# this; redundant set is cheap and protects ad-hoc SSH invocations whose
+# non-login shell starts with the bare-bones distro PATH.
+_USER_BIN = str(Path.home() / ".local" / "bin")
+if _USER_BIN not in os.environ.get("PATH", "").split(os.pathsep):
+    os.environ["PATH"] = _USER_BIN + os.pathsep + os.environ.get("PATH", "")
+
 
 def _load_repos_config() -> list[dict]:
     if not REPOS_CONFIG_PATH.exists():
@@ -455,11 +463,130 @@ def repo_actuate_pullers_pin(repo_path: Path) -> str | None:
     return _extract_actuate_pin(repo_path, "actuate-pullers")
 
 
+def repo_radon_cc_hotspots(repo_path: Path) -> int:
+    """Count of cyclomatic-complexity hotspots (grade C+, CCN >= 11) per repo.
+
+    `radon cc -n C` filters to grade C and worse. JSON shape is
+    {filename: [block_dict, ...]}; summing inner list lengths gives the total.
+    Returns 0 on tool error so a single bad signal doesn't poison the run.
+    """
+    proc = subprocess.run(
+        ["radon", "cc", str(repo_path), "-n", "C", "-s", "--no-assert", "--json"],
+        capture_output=True, text=True, timeout=120,
+    )
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return 0
+    try:
+        data = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return 0
+    return sum(
+        len(blocks) for blocks in data.values()
+        if isinstance(blocks, list)
+    )
+
+
+def repo_ruff_unused_imports(repo_path: Path) -> int:
+    """Count of F401 (unused import) violations per repo.
+
+    `--exit-zero` means ruff returns 0 even when violations exist, so we can
+    parse the JSON output cleanly. `--no-cache` because the per-repo cache
+    state would skew counts when a tree is fetched fresh each hour.
+    """
+    proc = subprocess.run(
+        [
+            "ruff", "check", str(repo_path),
+            "--select", "F401",
+            "--output-format", "json",
+            "--no-cache",
+            "--exit-zero",
+        ],
+        capture_output=True, text=True, timeout=120,
+    )
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return 0
+    try:
+        return len(json.loads(proc.stdout))
+    except json.JSONDecodeError:
+        return 0
+
+
+def repo_vulture_dead_code(repo_path: Path) -> int:
+    """Count of vulture findings (likely-unused functions / classes / vars).
+
+    vulture exit codes: 0=no findings, 1=findings, 2=usage error, 3=findings
+    + errors. Treat 0/1/3 as success; one line of stdout per finding.
+    """
+    proc = subprocess.run(
+        ["vulture", str(repo_path)],
+        capture_output=True, text=True, timeout=120,
+    )
+    if proc.returncode not in (0, 1, 3):
+        return 0
+    return sum(1 for line in proc.stdout.splitlines() if line.strip())
+
+
+def repo_mtm_days_p50(repo_path: Path) -> float | None:
+    """Median days-to-merge across the most recent 50 merged PRs for this repo.
+
+    Resolves the GitHub slug from the repo's git config (origin URL), then
+    calls `gh pr list --state merged --limit 50 --json ...`. Skips silently
+    if gh isn't auth'd or the repo has no merged PRs. Cost: 1 API call per
+    repo per collect run; well under the 5000/h authenticated rate limit.
+    """
+    # Resolve slug from origin URL — handles both SSH (git@github.com:org/repo)
+    # and HTTPS (https://github.com/org/repo[.git]) forms.
+    cfg = subprocess.run(
+        ["git", "-C", str(repo_path), "config", "--get", "remote.origin.url"],
+        capture_output=True, text=True, timeout=5,
+    )
+    if cfg.returncode != 0 or not cfg.stdout.strip():
+        return None
+    url = cfg.stdout.strip()
+    m = re.search(r"github\.com[:/]([^/]+/[^/.]+?)(?:\.git)?$", url)
+    if not m:
+        return None
+    slug = m.group(1)
+
+    proc = subprocess.run(
+        [
+            "gh", "pr", "list", "--state", "merged", "--limit", "50",
+            "--json", "mergedAt,createdAt", "-R", slug,
+        ],
+        capture_output=True, text=True, timeout=30,
+    )
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return None
+    try:
+        prs = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return None
+    deltas_days = []
+    for p in prs:
+        merged = p.get("mergedAt")
+        created = p.get("createdAt")
+        if not (merged and created):
+            continue
+        m_dt = datetime.fromisoformat(merged.replace("Z", "+00:00"))
+        c_dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
+        deltas_days.append((m_dt - c_dt).total_seconds() / 86400)
+    if not deltas_days:
+        return None
+    deltas_days.sort()
+    n = len(deltas_days)
+    median = deltas_days[n // 2] if n % 2 else (deltas_days[n // 2 - 1] + deltas_days[n // 2]) / 2
+    return round(median, 2)
+
+
 GIT_LOCAL_DISPATCH: dict[str, callable] = {
     "repo_todo_fixme_count": repo_todo_fixme_count,
     "repo_actuate_frames_pin": repo_actuate_frames_pin,
     "repo_actuate_filters_pin": repo_actuate_filters_pin,
     "repo_actuate_pullers_pin": repo_actuate_pullers_pin,
+    "repo_radon_cc_hotspots": repo_radon_cc_hotspots,
+    "repo_ruff_unused_imports": repo_ruff_unused_imports,
+    "repo_vulture_dead_code": repo_vulture_dead_code,
+    "repo_mtm_days_p50": repo_mtm_days_p50,
 }
 
 

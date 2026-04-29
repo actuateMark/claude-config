@@ -947,6 +947,82 @@
       "would_have_caught": "Adoption-tracking — a new repo pinning actuate-pullers shows up via the `new_pattern` rule."
     },
     {
+      "id": "repo_radon_cc_hotspots",
+      "component": "code-health",
+      "source": "git_local",
+      "repos": ["all"],
+      "command": "radon cc <repo> -n C -s --no-assert --json (grade C+, CCN >= 11)",
+      "unit": "facet_count",
+      "description": "Cyclomatic-complexity hotspots (grade C and worse, CCN >= 11) per repo. Tracks the count of functions/methods that need refactoring attention. FACET dict {repo_name: count}. Initial baseline 2026-04-29: actuate-libraries=165, actuate_admin=119, vms-connector=92, autopatrol-server=37; smaller repos in single digits. Thresholds anchored to those baselines — recalibrate after 7d.",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_above": 200,
+        "red_above": 400
+      },
+      "window_hours": 24,
+      "enabled": true,
+      "would_have_caught": "Sustained complexity-debt accrual: a refactor PR that nets +20 hotspots without intent."
+    },
+    {
+      "id": "repo_ruff_unused_imports",
+      "component": "code-health",
+      "source": "git_local",
+      "repos": ["all"],
+      "command": "ruff check <repo> --select F401 --output-format json --no-cache --exit-zero",
+      "unit": "facet_count",
+      "description": "Count of F401 (unused import) violations per repo. Captures dead imports left behind after refactors — usually a 1-line fix per finding. FACET dict {repo_name: count}. Day-1 baselines (2026-04-29): actuate_admin=265, actuate-libraries=172, vms-connector=110, autopatrol-server=33, connector_deployer=5, autopatrol_onboarder=5, actuate-inference-api=0. Thresholds set so admin's existing debt is yellow (visible) without going straight to red.",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_above": 200,
+        "red_above": 500
+      },
+      "window_hours": 24,
+      "enabled": true,
+      "would_have_caught": "Lint-debt drift; an import that survived a refactor will show up the next collect."
+    },
+    {
+      "id": "repo_mtm_days_p50",
+      "component": "code-health",
+      "source": "git_local",
+      "repos": ["all"],
+      "command": "gh pr list --state merged --limit 50 --json mergedAt,createdAt -R <slug>; median delta in days",
+      "unit": "facet_days",
+      "description": "Median time-to-merge across the last 50 merged PRs per repo, in days. Resolves the GitHub slug from each repo's `git config remote.origin.url`. FACET dict {repo_name: float days}. Day-1 baseline (2026-04-29): vms-connector p50 = 0.41 days (~10h). Slow-down indicator: if a team is hitting review or CI-flake bottlenecks, the median creeps up. Fast-down indicator: a flurry of stage-bot autobumps drops the median; that's healthy noise. 1 gh API call per repo per collect (7/h, well under 5000/h limit).",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_above": 5,
+        "red_above": 14
+      },
+      "window_hours": 24,
+      "enabled": true,
+      "would_have_caught": "Sustained CI flake or review-bottleneck regression — visible as p50 climbing over 7d."
+    },
+    {
+      "id": "repo_vulture_dead_code",
+      "component": "code-health",
+      "source": "git_local",
+      "repos": ["all"],
+      "command": "vulture <repo>  (count = lines of stdout findings)",
+      "unit": "facet_count",
+      "description": "Likely-unused functions, classes, vars per repo (vulture findings). Has high false-positive rate (decorators, dynamically-resolved names, test fixtures, Django ORM patterns) so calibrate generously and treat as a *trend* signal rather than absolute. FACET dict {repo_name: count}. Day-1 baselines (2026-04-29): actuate_admin=3308 (Django magic dominates), actuate-libraries=801, vms-connector=191, autopatrol-server=93, connector_deployer=85, actuate-inference-api=57, autopatrol_onboarder=15. Thresholds set at ~2x current libs (highest non-Django) so a real refactor regression flags but Django magic doesn't.",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_above": 1500,
+        "red_above": 5000
+      },
+      "window_hours": 24,
+      "enabled": true,
+      "would_have_caught": "Dead-code accrual after a refactor — flagged via baseline_drift on next collect."
+    },
+    {
       "id": "cost_s3_daily_total",
       "component": "cost",
       "source": "ce_daily",
@@ -1067,6 +1143,25 @@
       ],
       "window_hours": 12,
       "enabled": true
+    },
+    {
+      "id": "iam_access_denied_cluster_wide",
+      "component": "cross-cutting",
+      "source": "nr_log",
+      "nrql": "SELECT count(*) FROM Log WHERE cluster_name='Connector-EKS' AND (message LIKE '%AccessDeniedException%' OR message LIKE '%is not authorized to perform%' OR message LIKE '%not authorized to perform%') FACET container_name SINCE 12 hours ago LIMIT 10",
+      "unit": "facet_count",
+      "description": "Cluster-wide IAM AccessDenied detector. Counts AccessDeniedException + 'not authorized to perform' message patterns across all Connector-EKS containers, faceted by container. IAM denials are NEVER a normal steady state — any non-zero count means a service is missing a permission grant (new GSI, new resource, role drift). Caught the 2026-04-29 autopatrol-microservice-role MotionFrame/index/run_timestamp gap retroactively; a yellow_above=1 threshold means the next instance flags within 12h instead of waiting for a manual overnight check.",
+      "thresholds": {
+        "yellow_above": 1,
+        "red_above": 10
+      },
+      "regression_rules": [
+        "new_pattern"
+      ],
+      "critical": true,
+      "window_hours": 12,
+      "enabled": true,
+      "would_have_caught": "2026-04-29 autopatrol-microservice-role MotionFrame GSI denial (~27 hits in 12h before fix; would have flagged on first hit)"
     }
   ]
 }
