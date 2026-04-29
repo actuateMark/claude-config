@@ -985,6 +985,44 @@
       "would_have_caught": "Lint-debt drift; an import that survived a refactor will show up the next collect."
     },
     {
+      "id": "repo_stale_branches_count",
+      "component": "code-health",
+      "source": "git_local",
+      "repos": ["all"],
+      "command": "git for-each-ref refs/remotes/origin/ --format='... %(committerdate:unix)' | count refs older than 60d",
+      "unit": "facet_count",
+      "description": "Per-repo count of remote branches whose last commit is older than 60 days. Pure local git, no API call. Captures branch-debt — abandoned features, codex/cursor automation rot, etc. Day-1 example: queue_consumer has 68 stale branches against 77 total (codex/cursor automation residue). FACET dict {repo_name: count}.",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_above": 30,
+        "red_above": 80
+      },
+      "window_hours": 24,
+      "enabled": true,
+      "would_have_caught": "Branch-bloat that would otherwise stay invisible — only the active branches show on /app/repos/."
+    },
+    {
+      "id": "repo_open_prs_p50_age_days",
+      "component": "code-health",
+      "source": "git_local",
+      "repos": ["all"],
+      "command": "gh pr list --state open --limit 50 --json createdAt -R <slug>; median age in days",
+      "unit": "facet_days",
+      "description": "Median age across each repo's currently-open PRs. Pairs with `repo_mtm_days_p50` (merged latency) for a flow picture: high MTM + high open-PR-age = review bottleneck; high MTM + low open-PR-age = recent spike. Repos with zero open PRs drop from the FACET dict (uninteresting / clean). 1 gh API call per repo per collect (16/h, well under rate limit).",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_above": 7,
+        "red_above": 21
+      },
+      "window_hours": 24,
+      "enabled": true,
+      "would_have_caught": "Sustained review-bottleneck where PRs queue up days before being looked at."
+    },
+    {
       "id": "repo_mtm_days_p50",
       "component": "code-health",
       "source": "git_local",

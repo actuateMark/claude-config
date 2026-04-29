@@ -540,6 +540,86 @@ def repo_vulture_dead_code(repo_path: Path) -> int:
     return sum(1 for line in proc.stdout.splitlines() if line.strip())
 
 
+def repo_stale_branches_count(repo_path: Path) -> int:
+    """Count of remote branches with no commit in the last 60 days.
+
+    Uses local git refs (no API call) — `git for-each-ref refs/remotes/origin/`
+    listing each branch's last committer timestamp. The HEAD symbolic ref is
+    skipped. Branches younger than 60d don't count regardless of activity.
+    """
+    proc = subprocess.run(
+        [
+            "git", "-C", str(repo_path), "for-each-ref",
+            "refs/remotes/origin/",
+            "--format=%(refname:short) %(committerdate:unix)",
+        ],
+        capture_output=True, text=True, timeout=30,
+    )
+    if proc.returncode != 0:
+        return 0
+    cutoff = int(time.time()) - 60 * 86400
+    stale = 0
+    for line in proc.stdout.splitlines():
+        parts = line.rsplit(" ", 1)
+        if len(parts) != 2:
+            continue
+        ref, ts = parts
+        # Skip the symbolic HEAD pointer (e.g. origin/HEAD -> origin/main)
+        if ref.endswith("/HEAD"):
+            continue
+        try:
+            if int(ts) < cutoff:
+                stale += 1
+        except ValueError:
+            continue
+    return stale
+
+
+def repo_open_prs_p50_age_days(repo_path: Path) -> float | None:
+    """Median age (days) across currently-open PRs.
+
+    Returns None when the repo has no open PRs — drops from the FACET dict so
+    'clean' repos don't dilute the meaningful values. Pairs with
+    `repo_mtm_days_p50` (merged latency) for a flow picture: high MTM + high
+    open-PR-age = review bottleneck; high MTM + low open-PR-age = recent
+    spike, possibly noise.
+    """
+    cfg = subprocess.run(
+        ["git", "-C", str(repo_path), "config", "--get", "remote.origin.url"],
+        capture_output=True, text=True, timeout=5,
+    )
+    if cfg.returncode != 0 or not cfg.stdout.strip():
+        return None
+    m = re.search(r"github\.com[:/]([^/]+/[^/.]+?)(?:\.git)?$", cfg.stdout.strip())
+    if not m:
+        return None
+    proc = subprocess.run(
+        [
+            "gh", "pr", "list", "--state", "open", "--limit", "50",
+            "--json", "createdAt", "-R", m.group(1),
+        ],
+        capture_output=True, text=True, timeout=30,
+    )
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return None
+    try:
+        prs = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return None
+    if not prs:
+        return None
+    now = datetime.now(timezone.utc)
+    ages = sorted(
+        (now - datetime.fromisoformat(p["createdAt"].replace("Z", "+00:00"))).total_seconds() / 86400
+        for p in prs if p.get("createdAt")
+    )
+    if not ages:
+        return None
+    n = len(ages)
+    median = ages[n // 2] if n % 2 else (ages[n // 2 - 1] + ages[n // 2]) / 2
+    return round(median, 2)
+
+
 def repo_mtm_days_p50(repo_path: Path) -> float | None:
     """Median days-to-merge across the most recent 50 merged PRs for this repo.
 
@@ -601,6 +681,8 @@ GIT_LOCAL_DISPATCH: dict[str, callable] = {
     "repo_ruff_unused_imports": repo_ruff_unused_imports,
     "repo_vulture_dead_code": repo_vulture_dead_code,
     "repo_mtm_days_p50": repo_mtm_days_p50,
+    "repo_stale_branches_count": repo_stale_branches_count,
+    "repo_open_prs_p50_age_days": repo_open_prs_p50_age_days,
 }
 
 
