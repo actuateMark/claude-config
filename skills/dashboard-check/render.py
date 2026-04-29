@@ -87,7 +87,7 @@ def load_baselines() -> dict[str, float]:
 
 def merge_results(tempdir: Path) -> dict[str, Any]:
     merged: dict[str, Any] = {}
-    for name in ("cw_results.json", "nr_results.json", "gh_results.json", "ce_results.json", "local_results.json", "git_results.json"):
+    for name in ("cw_results.json", "nr_results.json", "gh_results.json", "ce_results.json", "local_results.json", "git_results.json", "tls_results.json"):
         path = tempdir / name
         if path.exists():
             try:

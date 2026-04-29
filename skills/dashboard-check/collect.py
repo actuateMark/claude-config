@@ -774,6 +774,55 @@ def collect_git_local_signals(signals: list[dict]) -> dict:
     return out
 
 
+# --- tls-cert collection -------------------------------------------------
+#
+# External-endpoint TLS cert expiry. Each signal's `hosts: [...]` field
+# lists fully-qualified DNS names; the collector connects to each on port
+# 443, parses the cert, and emits a FACET dict {host: days_until_expiry}.
+# Pure stdlib — no new deps.
+
+def _tls_cert_days_until_expiry(host: str, port: int = 443, timeout: int = 10) -> int | None:
+    import ssl
+    import socket
+    ctx = ssl.create_default_context()
+    try:
+        with socket.create_connection((host, port), timeout=timeout) as sock:
+            with ctx.wrap_socket(sock, server_hostname=host) as ssock:
+                cert = ssock.getpeercert()
+    except (socket.gaierror, socket.timeout, ConnectionRefusedError, ssl.SSLError, OSError):
+        return None
+    if not cert or "notAfter" not in cert:
+        return None
+    # Cert format: "Aug 18 23:59:59 2026 GMT"
+    try:
+        not_after = datetime.strptime(cert["notAfter"], "%b %d %H:%M:%S %Y %Z").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+    return (not_after - datetime.now(timezone.utc)).days
+
+
+def collect_tls_cert_signals(signals: list[dict]) -> dict:
+    out: dict = {}
+    for sig in signals:
+        sid = sig["id"]
+        hosts = sig.get("hosts") or []
+        if not hosts:
+            log.warning("skip %s: no `hosts` list", sid)
+            out[sid] = None
+            continue
+        facet: dict = {}
+        for host in hosts:
+            days = _tls_cert_days_until_expiry(host)
+            if days is None:
+                log.error("tls %s: failed to fetch cert", host)
+                facet[host] = None
+                continue
+            facet[host] = days
+        out[sid] = facet
+        log.info("tls %-40s = %s", sid, _short(facet))
+    return out
+
+
 def collect_minipc_local_signals(signals: list[dict]) -> dict:
     out: dict = {}
     for sig in signals:
@@ -839,22 +888,25 @@ def main() -> int:
     aws_signals = [s for s in enabled if s["source"].startswith(("cw_", "ce_"))]
     local_signals = [s for s in enabled if s["source"] == "minipc_local"]
     git_signals = [s for s in enabled if s["source"] == "git_local"]
-    log.info("collecting %d NR + %d AWS + %d local + %d git signals (catalog: %d enabled / %d total)",
-             len(nr_signals), len(aws_signals), len(local_signals), len(git_signals),
+    tls_signals = [s for s in enabled if s["source"] == "tls_cert"]
+    log.info("collecting %d NR + %d AWS + %d local + %d git + %d tls signals (catalog: %d enabled / %d total)",
+             len(nr_signals), len(aws_signals), len(local_signals), len(git_signals), len(tls_signals),
              len(enabled), len(catalog["signals"]))
 
     nr_out = collect_nr_signals(nr_signals)
     cw_out, ce_out = collect_aws_signals(aws_signals, args.aws_profile)
     local_out = collect_minipc_local_signals(local_signals)
     git_out = collect_git_local_signals(git_signals)
+    tls_out = collect_tls_cert_signals(tls_signals)
 
     (args.tempdir / "nr_results.json").write_text(json.dumps(nr_out, indent=2))
     (args.tempdir / "cw_results.json").write_text(json.dumps(cw_out, indent=2))
     (args.tempdir / "ce_results.json").write_text(json.dumps(ce_out, indent=2))
     (args.tempdir / "local_results.json").write_text(json.dumps(local_out, indent=2))
     (args.tempdir / "git_results.json").write_text(json.dumps(git_out, indent=2))
+    (args.tempdir / "tls_results.json").write_text(json.dumps(tls_out, indent=2))
 
-    all_obs = {**nr_out, **cw_out, **ce_out, **local_out, **git_out}
+    all_obs = {**nr_out, **cw_out, **ce_out, **local_out, **git_out, **tls_out}
     n_total = len(all_obs)
     n_failed = sum(1 for v in all_obs.values() if v is None)
     log.info("wrote %d signals to %s (%d failed)", n_total, args.tempdir, n_failed)

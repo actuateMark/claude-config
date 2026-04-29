@@ -829,6 +829,30 @@
       "would_have_caught": "Real-time crashloop detection (5m granularity vs. fleet_oomkills_24h). DISABLED 2026-04-27 pending NRQL design + threshold calibration; see cookbook §Per-source recipes for derivative-based alternatives."
     },
     {
+      "id": "ssl_cert_days_until_expiry",
+      "component": "infra-health",
+      "source": "tls_cert",
+      "hosts": [
+        "api.actuateui.net",
+        "api.actuateui.eu",
+        "admin.actuateui.net",
+        "api.dev.actuateui.eu"
+      ],
+      "command": "python ssl.create_default_context() + getpeercert() per host; days until cert.notAfter",
+      "unit": "facet_days",
+      "description": "Days until each customer-facing HTTPS endpoint's TLS cert expires. FACET dict {host: days_remaining}. Add a host by appending its FQDN to the `hosts` list — the collector iterates and emits one entry per host. Threshold yellow_below=21 (3-week warning), red_below=7 (week-out scramble). Day-1 (2026-04-29): all 4 monitored hosts >100 days. Add more hosts as new endpoints come online (e.g. signal.actuate.ai, customer-specific subdomains). Hosts that fail to connect (DNS / firewall / wrong port) emit null and surface as classification 'error' so you notice the misconfig.",
+      "regression_rules": [
+        "silent_drop"
+      ],
+      "thresholds": {
+        "yellow_below": 21,
+        "red_below": 7
+      },
+      "window_hours": 24,
+      "enabled": true,
+      "would_have_caught": "Customer-facing endpoint cert expiry — first time we get to find out before the customer does."
+    },
+    {
       "id": "minipc_failed_user_units",
       "component": "minipc-host",
       "source": "minipc_local",
