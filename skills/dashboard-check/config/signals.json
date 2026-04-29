@@ -902,6 +902,51 @@
       "would_have_caught": "Phase 2 first git_local signal — anchors the source class. No prior incident; trend-anchored."
     },
     {
+      "id": "repo_actuate_frames_pin",
+      "component": "code-health",
+      "source": "git_local",
+      "repos": ["all"],
+      "command": "parse pyproject.toml + requirements.txt for actuate-frames pin spec",
+      "unit": "facet_version",
+      "description": "Per-repo pin spec for `actuate-frames`. FACET dict {repo_name: pin_spec} — only repos that actually pin the package show up. Drift detector: when this dict has more than one distinct value, repos are pinning different versions. Workspace declarations skipped. Informational by design — version strings can't classify; the `new_pattern` regression rule will flag when a new repo starts pinning or a version moves.",
+      "regression_rules": [
+        "new_pattern"
+      ],
+      "window_hours": 24,
+      "enabled": true,
+      "would_have_caught": "Library-pin drift: e.g. one repo on 1.x while sibling repo bumps to 2.x without the consumer updating."
+    },
+    {
+      "id": "repo_actuate_filters_pin",
+      "component": "code-health",
+      "source": "git_local",
+      "repos": ["all"],
+      "command": "parse pyproject.toml + requirements.txt for actuate-filters pin spec",
+      "unit": "facet_version",
+      "description": "Per-repo pin spec for `actuate-filters`. Same shape as repo_actuate_frames_pin. As of seed-day 2026-04-28 there's already drift: vms-connector pins `==2.0.4` while actuate_admin pins `~=2.0.0` — useful first datapoint for the signal's value.",
+      "regression_rules": [
+        "new_pattern"
+      ],
+      "window_hours": 24,
+      "enabled": true,
+      "would_have_caught": "vms-connector / actuate_admin diverging on actuate-filters — caught at the moment a downstream consumer bumps without coordinating."
+    },
+    {
+      "id": "repo_actuate_pullers_pin",
+      "component": "code-health",
+      "source": "git_local",
+      "repos": ["all"],
+      "command": "parse pyproject.toml + requirements.txt for actuate-pullers pin spec",
+      "unit": "facet_version",
+      "description": "Per-repo pin spec for `actuate-pullers`. Same shape as repo_actuate_frames_pin. As of seed-day 2026-04-28 only vms-connector pins it — kept enabled so future consumers (e.g. autopatrol-server, actuate-inference-api) appear automatically when they adopt.",
+      "regression_rules": [
+        "new_pattern"
+      ],
+      "window_hours": 24,
+      "enabled": true,
+      "would_have_caught": "Adoption-tracking — a new repo pinning actuate-pullers shows up via the `new_pattern` rule."
+    },
+    {
       "id": "cost_s3_daily_total",
       "component": "cost",
       "source": "ce_daily",

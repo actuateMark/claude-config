@@ -25,6 +25,7 @@ import argparse
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 import time
@@ -376,8 +377,89 @@ def repo_todo_fixme_count(repo_path: Path) -> int:
     return total
 
 
+def _parse_pyproject_pin(repo_path: Path, package: str) -> str | None:
+    """Extract the version-spec for `package` from pyproject.toml.
+
+    Recognizes the common shapes:
+      - PEP 621 list:  "actuate-frames==2.0.0",
+      - Poetry/uv:     actuate-frames = "^2.0.0"
+      - Range / extras: "actuate-frames>=2.0.0,<3"
+    Returns the spec part (e.g. "==2.0.0", "~=2.0.0", ">=2.0.0,<3"), or
+    None if the package isn't pinned. Workspace declarations
+    (`actuate-frames = { workspace = true }`) intentionally return None —
+    the workspace member doesn't pin a version.
+    """
+    p = repo_path / "pyproject.toml"
+    if not p.exists():
+        return None
+    try:
+        text = p.read_text()
+    except OSError:
+        return None
+    # PEP 621 / uv list-of-strings form: "<pkg><spec>"
+    pat_list = re.compile(
+        rf'["\']{re.escape(package)}\s*([=<>~!][^"\',\s]+(?:\s*,\s*[=<>~!][^"\',\s]+)*)'
+    )
+    m = pat_list.search(text)
+    if m:
+        return m.group(1).strip()
+    # Poetry/uv key=value: actuate-frames = "^2.0.0"
+    pat_kv = re.compile(
+        rf'^\s*{re.escape(package)}\s*=\s*"([^"]+)"\s*$',
+        re.MULTILINE,
+    )
+    m = pat_kv.search(text)
+    if m and "workspace" not in m.group(1):
+        return m.group(1).strip()
+    return None
+
+
+def _parse_requirements_pin(repo_path: Path, package: str) -> str | None:
+    """Extract the version-spec for `package` from requirements.txt / .in."""
+    pat = re.compile(
+        rf'^\s*{re.escape(package)}\s*([=<>~!][^\s#]+(?:\s*,\s*[=<>~!][^\s#]+)*)'
+    )
+    for fn in ("requirements.txt", "requirements.in"):
+        p = repo_path / fn
+        if not p.exists():
+            continue
+        try:
+            for line in p.read_text().splitlines():
+                line = line.split("#", 1)[0].strip()
+                if not line:
+                    continue
+                m = pat.match(line)
+                if m:
+                    return m.group(1).strip()
+        except OSError:
+            continue
+    return None
+
+
+def _extract_actuate_pin(repo_path: Path, package: str) -> str | None:
+    return (
+        _parse_pyproject_pin(repo_path, package)
+        or _parse_requirements_pin(repo_path, package)
+    )
+
+
+def repo_actuate_frames_pin(repo_path: Path) -> str | None:
+    return _extract_actuate_pin(repo_path, "actuate-frames")
+
+
+def repo_actuate_filters_pin(repo_path: Path) -> str | None:
+    return _extract_actuate_pin(repo_path, "actuate-filters")
+
+
+def repo_actuate_pullers_pin(repo_path: Path) -> str | None:
+    return _extract_actuate_pin(repo_path, "actuate-pullers")
+
+
 GIT_LOCAL_DISPATCH: dict[str, callable] = {
     "repo_todo_fixme_count": repo_todo_fixme_count,
+    "repo_actuate_frames_pin": repo_actuate_frames_pin,
+    "repo_actuate_filters_pin": repo_actuate_filters_pin,
+    "repo_actuate_pullers_pin": repo_actuate_pullers_pin,
 }
 
 
@@ -419,10 +501,16 @@ def collect_git_local_signals(signals: list[dict]) -> dict:
                 log.debug("git: skip %s/%s (no working tree)", sid, name)
                 continue
             try:
-                facet[name] = fn(path)
+                value = fn(path)
             except Exception as e:
                 log.error("git %-40s %s FAILED: %s", sid, name, e)
                 facet[name] = None
+                continue
+            # None means "not applicable to this repo" (e.g. package not pinned).
+            # Drop the entry so the FACET dict only shows repos with real data.
+            if value is None:
+                continue
+            facet[name] = value
         out[sid] = facet
         log.info("git %-40s = %s", sid, _short(facet))
     return out
