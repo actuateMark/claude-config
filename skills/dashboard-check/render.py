@@ -5,8 +5,8 @@ Usage:
 
 Reads:
   - config/signals.json + config/baselines.json (in this skill's dir)
-  - <tempdir>/cw_results.json, nr_results.json, gh_results.json, ce_results.json
-    (any subset; missing files are treated as empty)
+  - <tempdir>/cw_results.json, nr_results.json, gh_results.json, ce_results.json,
+    local_results.json, git_results.json (any subset; missing files are treated as empty)
   - prior-day snapshot at <output-root>/<prior-date>/data.json (for regression rules)
   - sink observations.jsonl (for the Morning summary section)
 
@@ -87,7 +87,7 @@ def load_baselines() -> dict[str, float]:
 
 def merge_results(tempdir: Path) -> dict[str, Any]:
     merged: dict[str, Any] = {}
-    for name in ("cw_results.json", "nr_results.json", "gh_results.json", "ce_results.json", "local_results.json"):
+    for name in ("cw_results.json", "nr_results.json", "gh_results.json", "ce_results.json", "local_results.json", "git_results.json"):
         path = tempdir / name
         if path.exists():
             try:

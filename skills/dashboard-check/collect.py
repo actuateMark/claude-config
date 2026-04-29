@@ -314,6 +314,120 @@ MINIPC_LOCAL_DISPATCH: dict[str, callable] = {
 }
 
 
+# --- git-local collection ------------------------------------------------
+#
+# Per-repo code-health metrics. Iterates the repo list at
+# ~/.config/minipc-repo-cron/repos.json (the same one git-fetch-major-repos.sh
+# uses) and emits one FACET dict per signal: {repo_name: value}.
+#
+# Each signal-id maps to a metric function that takes a Path to the repo
+# working tree and returns a scalar. The collector handles iteration + the
+# missing-repo / missing-config fallthrough.
+
+REPOS_CONFIG_PATH = Path.home() / ".config" / "minipc-repo-cron" / "repos.json"
+WORK_ROOT = Path.home() / "work"
+
+
+def _load_repos_config() -> list[dict]:
+    if not REPOS_CONFIG_PATH.exists():
+        return []
+    try:
+        data = json.loads(REPOS_CONFIG_PATH.read_text())
+        return data.get("repos") or []
+    except (json.JSONDecodeError, OSError) as e:
+        log.error("git: failed to read %s: %s", REPOS_CONFIG_PATH, e)
+        return []
+
+
+def repo_todo_fixme_count(repo_path: Path) -> int:
+    """Count of TODO + FIXME occurrences across the repo working tree.
+
+    Uses ripgrep's --count-matches so a single line with "TODO TODO" counts as
+    2. Word-boundary anchors avoid matching TODOLIST or FIXMENT. Restricted to
+    the working tree only — `--no-ignore-vcs` is intentionally NOT set, so
+    .gitignore is respected.
+    """
+    try:
+        out = subprocess.check_output(
+            [
+                "rg", "--count-matches", "--no-messages",
+                r"\b(TODO|FIXME)\b",
+                str(repo_path),
+            ],
+            text=True,
+            stderr=subprocess.DEVNULL,
+            timeout=30,
+        )
+    except subprocess.CalledProcessError as e:
+        # rg exits 1 when no matches found — treat as zero.
+        if e.returncode == 1:
+            return 0
+        raise
+    total = 0
+    for line in out.splitlines():
+        if not line:
+            continue
+        # Format: <path>:<count>
+        _, _, c = line.rpartition(":")
+        try:
+            total += int(c)
+        except ValueError:
+            continue
+    return total
+
+
+GIT_LOCAL_DISPATCH: dict[str, callable] = {
+    "repo_todo_fixme_count": repo_todo_fixme_count,
+}
+
+
+def collect_git_local_signals(signals: list[dict]) -> dict:
+    """Run each git_local signal across the configured repo set.
+
+    Each signal returns a FACET dict {repo_name: value}. Missing repos on
+    disk are skipped silently (the cron timer keeps the clones in sync; a
+    transient gap shouldn't fail the signal). If repos.json is missing
+    entirely (laptop dev path), all git_local signals are skipped with a
+    warning.
+    """
+    repos = _load_repos_config()
+    out: dict = {}
+    if not repos:
+        for sig in signals:
+            sid = sig["id"]
+            log.warning("skip %s: %s missing or empty (not on minipc?)",
+                        sid, REPOS_CONFIG_PATH)
+            out[sid] = None
+        return out
+
+    for sig in signals:
+        sid = sig["id"]
+        fn = GIT_LOCAL_DISPATCH.get(sid)
+        if fn is None:
+            log.warning("skip %s: no git_local dispatcher", sid)
+            out[sid] = None
+            continue
+        repo_filter = sig.get("repos") or ["all"]
+        targets = repos if repo_filter == ["all"] else [
+            r for r in repos if r["name"] in repo_filter
+        ]
+        facet: dict = {}
+        for r in targets:
+            name = r["name"]
+            path = WORK_ROOT / name
+            if not path.exists():
+                log.debug("git: skip %s/%s (no working tree)", sid, name)
+                continue
+            try:
+                facet[name] = fn(path)
+            except Exception as e:
+                log.error("git %-40s %s FAILED: %s", sid, name, e)
+                facet[name] = None
+        out[sid] = facet
+        log.info("git %-40s = %s", sid, _short(facet))
+    return out
+
+
 def collect_minipc_local_signals(signals: list[dict]) -> dict:
     out: dict = {}
     for sig in signals:
@@ -378,20 +492,23 @@ def main() -> int:
     nr_signals = [s for s in enabled if s["source"].startswith("nr_")]
     aws_signals = [s for s in enabled if s["source"].startswith(("cw_", "ce_"))]
     local_signals = [s for s in enabled if s["source"] == "minipc_local"]
-    log.info("collecting %d NR + %d AWS + %d local signals (catalog: %d enabled / %d total)",
-             len(nr_signals), len(aws_signals), len(local_signals),
+    git_signals = [s for s in enabled if s["source"] == "git_local"]
+    log.info("collecting %d NR + %d AWS + %d local + %d git signals (catalog: %d enabled / %d total)",
+             len(nr_signals), len(aws_signals), len(local_signals), len(git_signals),
              len(enabled), len(catalog["signals"]))
 
     nr_out = collect_nr_signals(nr_signals)
     cw_out, ce_out = collect_aws_signals(aws_signals, args.aws_profile)
     local_out = collect_minipc_local_signals(local_signals)
+    git_out = collect_git_local_signals(git_signals)
 
     (args.tempdir / "nr_results.json").write_text(json.dumps(nr_out, indent=2))
     (args.tempdir / "cw_results.json").write_text(json.dumps(cw_out, indent=2))
     (args.tempdir / "ce_results.json").write_text(json.dumps(ce_out, indent=2))
     (args.tempdir / "local_results.json").write_text(json.dumps(local_out, indent=2))
+    (args.tempdir / "git_results.json").write_text(json.dumps(git_out, indent=2))
 
-    all_obs = {**nr_out, **cw_out, **ce_out, **local_out}
+    all_obs = {**nr_out, **cw_out, **ce_out, **local_out, **git_out}
     n_total = len(all_obs)
     n_failed = sum(1 for v in all_obs.values() if v is None)
     log.info("wrote %d signals to %s (%d failed)", n_total, args.tempdir, n_failed)

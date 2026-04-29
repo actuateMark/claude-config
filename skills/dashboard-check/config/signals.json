@@ -286,6 +286,43 @@
       "would_have_caught": "2026-04-20 streamId-null bug fingerprint on stage"
     },
     {
+      "id": "connector_dummy_model_fallback_24h",
+      "component": "vms-connector",
+      "source": "nr_log",
+      "nrql": "SELECT uniqueCount(container_name) FROM Log WHERE cluster_name='Connector-EKS' AND message='WARNING:(MainThread):No models configured for site, appending dummy model.' AND container_name LIKE '%-autopatrol-%' SINCE 24 hours ago",
+      "unit": "count_per_24h",
+      "description": "Distinct AUTOPATROL connector containers logging the dummy-model fallback warning. >0 means an AutoPatrol site has empty `models` in settings.json and is silently running a no-op model. AUTO-566 (config-sync gap) is the underlying fix; this signal makes the misconfiguration discoverable proactively. **Filter `container_name LIKE '%-autopatrol-%'` is critical** — VCH and CHM integration types are not meant to run models, so the warning firing on them is expected/benign noise. Use exact-equality match on the message — fleet-wide `LIKE %...%` queries on message time out at NRDB scope.",
+      "regression_rules": [
+        "silent_drop_inverse"
+      ],
+      "critical": true,
+      "thresholds": {
+        "yellow_above": 0,
+        "red_above": 5
+      },
+      "window_hours": 24,
+      "enabled": true,
+      "would_have_caught": "2026-04-28 fleet-wide silent dummy-model state (30 sites affected at catalog time)"
+    },
+    {
+      "id": "connector_no_patrols_to_run_24h",
+      "component": "vms-connector",
+      "source": "nr_log",
+      "nrql": "SELECT uniqueCount(container_name) FROM Log WHERE cluster_name='Connector-EKS' AND message LIKE '%No patrols to run after all attempts%' SINCE 24 hours ago",
+      "unit": "count_per_24h",
+      "description": "Distinct connector containers logging that no patrols were available to run. >0 means a connector pod woke up to find an empty queue — either the schedule is stuck Awaiting in admin, the cleanup Lambda mis-disabled the schedule, or the patrol queue isn't writing. Pairs with onboarder/cleanup health.",
+      "regression_rules": [
+        "silent_drop_inverse"
+      ],
+      "thresholds": {
+        "yellow_above": 0,
+        "red_above": 3
+      },
+      "window_hours": 24,
+      "enabled": true,
+      "would_have_caught": "Misconfigured schedule visibility — added 2026-04-28 alongside dummy-model signal"
+    },
+    {
       "id": "nonetype_unpack_top_facet",
       "component": "vms-connector",
       "source": "nr_log",
@@ -844,6 +881,25 @@
       "window_hours": 24,
       "enabled": true,
       "would_have_caught": "Timer wedge / linger lost / user session not active"
+    },
+    {
+      "id": "repo_todo_fixme_count",
+      "component": "code-health",
+      "source": "git_local",
+      "repos": ["all"],
+      "command": "rg --count-matches '\\b(TODO|FIXME)\\b' ~/work/<repo>/",
+      "unit": "facet_count",
+      "description": "TODO + FIXME occurrences per tracked repo (working tree, .gitignore-respected). Phase 2 baseline metric — tracks accruing-debt hotspots over time. FACET dict {repo_name: count}. Initial thresholds conservative against the largest repos (vms-connector, actuate-libraries); recalibrate after 7d when sparkline trend is visible.",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_above": 500,
+        "red_above": 1500
+      },
+      "window_hours": 24,
+      "enabled": true,
+      "would_have_caught": "Phase 2 first git_local signal — anchors the source class. No prior incident; trend-anchored."
     },
     {
       "id": "cost_s3_daily_total",
