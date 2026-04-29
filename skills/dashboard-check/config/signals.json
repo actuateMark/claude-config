@@ -1004,6 +1004,25 @@
       "would_have_caught": "Branch-bloat that would otherwise stay invisible — only the active branches show on /app/repos/."
     },
     {
+      "id": "repo_ci_failure_rate_pct",
+      "component": "code-health",
+      "source": "git_local",
+      "repos": ["all"],
+      "command": "gh run list --limit 50 --json conclusion -R <slug>; pct fail/(fail+ok)",
+      "unit": "facet_pct",
+      "description": "Percentage of recent CI workflow runs that ended in failure (last 50 runs). Counts conclusion in {failure, timed_out, startup_failure} as fail; counts {success} as ok. Skipped/cancelled/in-progress are excluded from the denominator. Day-1 distribution (2026-04-29): most repos 0-15%, actuate_ailink the obvious outlier at 38% — broken pipeline. Threshold yellow=10 catches chronic mid-tier debt; red=25 flags actively broken CI. Returns None for repos with no CI runs (drops from FACET).",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_above": 10,
+        "red_above": 25
+      },
+      "window_hours": 24,
+      "enabled": true,
+      "would_have_caught": "Sustained CI flake or broken pipeline — would have caught actuate_ailink's 38% rate immediately."
+    },
+    {
       "id": "repo_open_prs_p50_age_days",
       "component": "code-health",
       "source": "git_local",

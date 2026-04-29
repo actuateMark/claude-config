@@ -540,6 +540,19 @@ def repo_vulture_dead_code(repo_path: Path) -> int:
     return sum(1 for line in proc.stdout.splitlines() if line.strip())
 
 
+def _resolve_github_slug(repo_path: Path) -> str | None:
+    """Extract `org/repo` from the repo's git config remote.origin.url.
+    Handles both SSH (git@github.com:org/repo) and HTTPS forms."""
+    cfg = subprocess.run(
+        ["git", "-C", str(repo_path), "config", "--get", "remote.origin.url"],
+        capture_output=True, text=True, timeout=5,
+    )
+    if cfg.returncode != 0 or not cfg.stdout.strip():
+        return None
+    m = re.search(r"github\.com[:/]([^/]+/[^/.]+?)(?:\.git)?$", cfg.stdout.strip())
+    return m.group(1) if m else None
+
+
 def repo_stale_branches_count(repo_path: Path) -> int:
     """Count of remote branches with no commit in the last 60 days.
 
@@ -584,19 +597,13 @@ def repo_open_prs_p50_age_days(repo_path: Path) -> float | None:
     open-PR-age = review bottleneck; high MTM + low open-PR-age = recent
     spike, possibly noise.
     """
-    cfg = subprocess.run(
-        ["git", "-C", str(repo_path), "config", "--get", "remote.origin.url"],
-        capture_output=True, text=True, timeout=5,
-    )
-    if cfg.returncode != 0 or not cfg.stdout.strip():
-        return None
-    m = re.search(r"github\.com[:/]([^/]+/[^/.]+?)(?:\.git)?$", cfg.stdout.strip())
-    if not m:
+    slug = _resolve_github_slug(repo_path)
+    if slug is None:
         return None
     proc = subprocess.run(
         [
             "gh", "pr", "list", "--state", "open", "--limit", "50",
-            "--json", "createdAt", "-R", m.group(1),
+            "--json", "createdAt", "-R", slug,
         ],
         capture_output=True, text=True, timeout=30,
     )
@@ -630,18 +637,9 @@ def repo_mtm_days_p50(repo_path: Path) -> float | None:
     """
     # Resolve slug from origin URL — handles both SSH (git@github.com:org/repo)
     # and HTTPS (https://github.com/org/repo[.git]) forms.
-    cfg = subprocess.run(
-        ["git", "-C", str(repo_path), "config", "--get", "remote.origin.url"],
-        capture_output=True, text=True, timeout=5,
-    )
-    if cfg.returncode != 0 or not cfg.stdout.strip():
+    slug = _resolve_github_slug(repo_path)
+    if slug is None:
         return None
-    url = cfg.stdout.strip()
-    m = re.search(r"github\.com[:/]([^/]+/[^/.]+?)(?:\.git)?$", url)
-    if not m:
-        return None
-    slug = m.group(1)
-
     proc = subprocess.run(
         [
             "gh", "pr", "list", "--state", "merged", "--limit", "50",
@@ -672,6 +670,42 @@ def repo_mtm_days_p50(repo_path: Path) -> float | None:
     return round(median, 2)
 
 
+def repo_ci_failure_rate_pct(repo_path: Path) -> float | None:
+    """% of recent CI workflow runs ending in failure (last 50 runs).
+
+    Conclusions counted as `fail`: failure, timed_out, startup_failure.
+    Counted as `ok`: success. Skipped, cancelled, neutral, action_required,
+    and in-progress (null) runs are excluded from the denominator —
+    they're not signal. Returns None when there aren't enough CI runs to
+    classify (denominator zero), so repos with no CI drop from the FACET.
+
+    Day-1 distribution (2026-04-29) clustered as: most repos 0-15%,
+    actuate_ailink at 38% as the obvious broken-CI outlier. Threshold
+    yellow=10 catches the chronic mid-tier; red=25 catches actively
+    broken pipelines.
+    """
+    slug = _resolve_github_slug(repo_path)
+    if slug is None:
+        return None
+    proc = subprocess.run(
+        ["gh", "run", "list", "--limit", "50", "--json", "conclusion", "-R", slug],
+        capture_output=True, text=True, timeout=30,
+    )
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return None
+    try:
+        runs = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return None
+    fail_terms = {"failure", "timed_out", "startup_failure"}
+    ok_terms = {"success"}
+    considered = [r for r in runs if r.get("conclusion") in fail_terms | ok_terms]
+    if not considered:
+        return None
+    fails = sum(1 for r in considered if r.get("conclusion") in fail_terms)
+    return round(fails / len(considered) * 100, 1)
+
+
 GIT_LOCAL_DISPATCH: dict[str, callable] = {
     "repo_todo_fixme_count": repo_todo_fixme_count,
     "repo_actuate_frames_pin": repo_actuate_frames_pin,
@@ -683,6 +717,7 @@ GIT_LOCAL_DISPATCH: dict[str, callable] = {
     "repo_mtm_days_p50": repo_mtm_days_p50,
     "repo_stale_branches_count": repo_stale_branches_count,
     "repo_open_prs_p50_age_days": repo_open_prs_p50_age_days,
+    "repo_ci_failure_rate_pct": repo_ci_failure_rate_pct,
 }
 
 
