@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# gitleaks pre-commit guard — blocks secrets from entering history (offboarding WS-D follow-up).
+# Enable per-clone with: git config core.hooksPath .githooks
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks protect --staged --redact --no-banner || {
+    echo "❌ gitleaks: potential secret in staged changes — commit blocked." >&2
+    echo "   Review the finding above. If it is a confirmed false positive, re-run with: git commit --no-verify" >&2
+    exit 1
+  }
+else
+  echo "⚠️  gitleaks not installed — secret scan skipped (install: https://github.com/gitleaks/gitleaks)" >&2
+fi
