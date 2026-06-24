@@ -1,6 +1,6 @@
 ---
 name: api-endpoint-development
-description: Build new FastAPI endpoints with proper Swagger documentation, Pydantic schema examples, security integration, input validation, and per-model docs. Covers the full cycle from registry to deployment. Trigger on "new endpoint", "add endpoint", "api development", "build api", "create api endpoint".
+description: Build new FastAPI endpoints with Swagger docs, Pydantic schema examples, security integration, validation. Full cycle registry → deployment. Trigger: '/api-endpoint-development', 'new endpoint'.
 user-invocable: true
 allowed-tools:
   - Read

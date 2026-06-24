@@ -1,6 +1,6 @@
 ---
 name: kb-synthesise
-description: Generate synthesis notes from accumulated sources within a topic. Cross-references multiple source notes to produce concept, entity, and synthesis articles. Presents a plan before writing. Trigger on "kb synthesise", "kb synthesize", "synthesize topic", "generate synthesis", "cross-reference sources".
+description: Generate synthesis notes from accumulated sources in a topic. Cross-references source notes; presents a plan before writing. Trigger: '/kb-synthesise', 'synthesize topic'.
 user-invocable: true
 allowed-tools:
   - Read
@@ -26,12 +26,14 @@ Generate concept, entity, and synthesis notes from accumulated source notes with
 
 ## Procedure
 
-1. **Read `_index.md`** and the target topic's `_summary.md`.
-2. **Read all source notes** in `topics/{topic}/sources/`.
-3. **Read existing notes** in `topics/{topic}/notes/` to avoid duplication.
+**CLI-first.** Health probe `~/.local/bin/obsidian vault 2>&1 | head -1`; if it succeeds, prefer the CLI to enumerate sources, find cross-source concept frequency, and check for existing coverage. Fall back to Glob/Grep only if the probe fails.
+
+1. **Read `_index.md`** and the target topic's `_summary.md` (use `obsidian read path=...`).
+2. **Enumerate source notes** in `topics/{topic}/sources/` — `obsidian files | grep "^topics/{topic}/sources/"` is one cheap call. Then read each via `obsidian read path=...` or Read.
+3. **Check existing notes** in `topics/{topic}/notes/` to avoid duplication. For concept-by-concept duplication checks across the whole vault, prefer `obsidian search query="<concept name>"` over recursive Grep — it returns hit counts and file paths in one call.
 4. **Identify synthesis opportunities:**
-   - **Concepts** that appear across 2+ sources (threshold for full article vs stub)
-   - **Entities** (services, repos, people, tools) mentioned but not yet documented
+   - **Concepts** that appear across 2+ sources. `obsidian search query="<concept>"` gives frequency directly.
+   - **Entities** (services, repos, people, tools) mentioned but not yet documented. Check existing coverage via `obsidian tag name=#<topic>` and `obsidian backlinks file=<entity-anchor>`.
    - **Syntheses** -- cross-source analysis, comparisons, architectural patterns
 5. **Present a plan** to the user:
    - List proposed notes with type, title, and which sources inform them

@@ -1,0 +1,143 @@
+# kb-relink curated tag-enrichment rules
+#
+# Maps a tag (with leading `#`) to the prose phrases or anchor-slugs that, when
+# present in a note, justify adding the tag to the note's frontmatter `tags:`
+# array IF it isn't already there.
+#
+# Two trigger types per tag:
+#
+#   phrases:  list of prose phrases that, if found in the note body (with the
+#             same safe-zone rules as wikilink relinking — no code, no front-
+#             matter, no existing wikilinks), trigger a proposal to add the tag.
+#             Use proper casing as it appears in prose.
+#
+#   via_anchor: list of anchor slugs (from the wikilink inventory) such that, if
+#             the note already wikilinks to ANY of them, the tag is implied.
+#             This is the structural / transitive trigger — leverages the
+#             relink anchor inventory rather than re-scanning prose.
+#
+# Both are additive — a tag is proposed if EITHER triggers fire. Anti-hallu-
+# cination still applies: a tag must appear in this file before the skill will
+# propose adding it. The skill never invents tags.
+#
+# Curation guidance:
+#   - Be conservative. A tag that fires too often becomes noise; better to miss
+#     a few legitimate adds than to over-tag every passing mention.
+#   - Prefer SPECIFIC tags. `#aws` is too broad to auto-add; `#kvs`, `#sqs`,
+#     `#dynamodb` are specific enough.
+#   - If a tag is structural-only (e.g., `#synthesis`, `#source`, `#worklog`),
+#     leave it OUT of this file — those are set when the note is created, not
+#     enriched after-the-fact.
+#   - Use the `obsidian tags counts` CLI to inspect current usage before adding
+#     a rule for a tag.
+#
+# Format:
+#   "#tag-name":
+#     phrases:
+#       - "Phrase A"
+#       - "Phrase B"
+#     via_anchor:
+#       - some-anchor-slug
+#       - another-anchor-slug
+
+# ---- platform / repo tags --------------------------------------------------
+
+"#vms-connector":
+  phrases:
+    - "VMS connector"
+    - "vms-connector"
+    - "Connector EKS"
+  via_anchor:
+    - vms-connector
+    - connector-factory
+
+"#actuate-libraries":
+  phrases:
+    - "actuate-libraries"
+  via_anchor:
+    - actuate-config
+
+"#actuate-inference-api":
+  phrases:
+    - "actuate-inference-api"
+    - "inference-api"
+
+"#autopatrol":
+  phrases:
+    - "AutoPatrol"
+    - "autopatrol"
+
+"#watchman":
+  phrases:
+    - "Watchman"
+
+# ---- observability / ops tags ---------------------------------------------
+
+"#new-relic":
+  phrases:
+    - "New Relic"
+    - "NRQL"
+    - "NerdGraph"
+  via_anchor:
+    - nrql-efficient-query-patterns
+    - nr-connector-query-cookbook
+
+"#operational-health":
+  via_anchor:
+    - dashboard-check
+    - operational-triage
+
+# ---- AWS service tags (specific only — not bare #aws) ---------------------
+
+"#eks":
+  phrases:
+    - "EKS cluster"
+  via_anchor: []
+
+"#sqs":
+  phrases:
+    - "SQS queue"
+
+"#dynamodb":
+  phrases:
+    - "DynamoDB"
+
+"#lambda":
+  phrases:
+    - "AWS Lambda"
+
+"#s3":
+  phrases:
+    - "S3 bucket"
+    - "Amazon S3"
+
+"#kvs":
+  phrases:
+    - "Kinesis Video Streams"
+
+# ---- video / streaming tags -----------------------------------------------
+
+"#ffmpeg":
+  phrases:
+    - "ffmpeg"
+    - "FFmpeg"
+  via_anchor:
+    - ffmpeg-entity
+
+"#rtsp":
+  phrases:
+    - "RTSP"
+
+"#webrtc":
+  phrases:
+    - "WebRTC"
+
+# ---- partner / integration tags -------------------------------------------
+
+"#immix":
+  phrases:
+    - "Immix"
+
+"#chm":
+  phrases:
+    - "Camera Health Monitoring"

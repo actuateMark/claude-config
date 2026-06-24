@@ -1,6 +1,6 @@
 ---
 name: kb-queue
-description: Batch process a topic's reading list or the global dive queue. Processes each queued source with per-item approval, supporting pause/resume. Trigger on "kb queue", "process queue", "process reading list", "batch ingest", "process dive queue".
+description: Batch-process a topic's reading list or the global dive queue with per-item approval (pause/resume). Trigger: '/kb-queue', 'process queue', 'batch ingest'.
 user-invocable: true
 allowed-tools:
   - Bash

@@ -1,6 +1,6 @@
 ---
 name: autopatrol-check
-description: Run this skill when the user asks to check autopatrol health, run overnight logs, monitor autopatrol sites, or verify autopatrol deployments are working. Trigger on phrases like "autopatrol check", "overnight check", "autopatrol health", "check autopatrol", "AP check", "monitor autopatrol runs".
+description: Check autopatrol health: overnight logs, site status, deployment verification. Distinct from /autopatrol-cleanup-lambda-check. Trigger: '/autopatrol-check', 'autopatrol health'.
 user-invocable: true
 allowed-tools:
   - Bash
@@ -40,7 +40,41 @@ Run a comprehensive health check across the autopatrol pipeline: k8s cronjobs, V
 | 37837 | Test - RTSP\Generic | 5 | hourly (:58) |
 | 40672 | AutoPatrol-Live | 7 | hourly (:58) |
 
-## Checks to Run
+## Step 0 — Three-tier preamble (canonical pattern; do not skip)
+
+This skill follows the [[2026-04-30_three-tier-routine-check-pattern|three-tier routine check pattern]]. **Walk the tiers; stop at the first that succeeds.** See `~/.claude/CLAUDE.md` § "Routine Checks: Three-Tier Pattern" for the global rule and [[2026-04-30_morning-prep-scripts-runbook]] for per-script debug playbooks.
+
+**Tier 1 — Firebat script (canonical)**
+
+```bash
+DIGEST=$(curl -fsS --max-time 5 "http://mork-firebat/logs/autopatrol-overnight-check-$(date +%F).stdout" 2>/dev/null)
+SUMMARY=$(curl -fsS --max-time 5 "http://mork-firebat/logs/morning-prep-latest.summary.json" 2>/dev/null)
+```
+
+If the cache is fresh (≤8h) and the summary's `skills["autopatrol-overnight-check"].exit_code == 0`, fold the digest into the caller's flow and exit. The script discovers active sites dynamically via NRQL `capture()` — site IDs are no longer hardcoded.
+
+**Tier 2 — Local laptop script (fallback)**
+
+```bash
+if [ -x ~/bin/autopatrol-overnight-check ]; then
+  ~/bin/autopatrol-overnight-check "$@"
+  exit $?
+fi
+```
+
+Source: `/home/mork/work/local_network_scripts/files/autopatrol-overnight-check.sh`. Auth: NR API key at `~/.config/newrelic/key`.
+
+**Tier 3 — LLM skill (last resort + diagnostic)**
+
+If neither tier worked, run the inline checks below. **When LLM is the active tier, you have a diagnostic obligation** — surface the script error, propose a fix where mechanical (NRQL repair, missing module install, path fix), surface user-needs-to-act items (NR key rotation), and log the diagnosis in today's daily note. See [[2026-04-30_three-tier-routine-check-pattern]] § "Tier 3" for the full checklist.
+
+**Note on §1 + §2 below (k8s checks):** the script DEFERS k8s cronjob/pod checks because the Firebat doesn't have EKS access yet. NR log activity is a strong proxy ("if no patrols are running, k8s is broken"). If a site shows red, run `kubectl get cronjobs -n rearchitecture | grep autopatrol` and `kubectl get pods -n rearchitecture | grep autopatrol` from the laptop.
+
+**Note on the SKILL.md "Known Prod Sites" table:** that list went stale (sites 41158/41178/45061/37837/40672 no longer appear in logs). The Tier 1 script discovers sites dynamically — prefer the script's output over the hardcoded table for what's actually running.
+
+---
+
+## Checks to Run (LLM-fallback only)
 
 Execute these checks in order. Run independent checks in parallel where possible. Use the New Relic MCP tool (`mcp__newrelic__execute_nrql_query` with `account_id: 3421145`) for log queries and `kubectl` via Bash for k8s checks.
 

@@ -1,6 +1,6 @@
 ---
 name: claims
-description: Print the current session-claims table from mark-todos.md. Shows all active Claude Code sessions claiming a scope, flags overlaps with current CWD, and highlights stale heartbeats. Trigger on "/claims", "show claims", "who is working on what", "active sessions".
+description: Print the session-claims table from mark-todos.md. Flags overlaps with current CWD; highlights stale heartbeats. Trigger: '/claims', 'show claims'.
 user-invocable: true
 allowed-tools:
   - Read

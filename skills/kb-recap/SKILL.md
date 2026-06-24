@@ -1,6 +1,6 @@
 ---
 name: kb-recap
-description: Generate a categorized recap of KB files created/modified in a date range (default today). Groups by note type (source/concept/synthesis/entity/summary/reading-list/daily) and within each category by topic. Distinguishes new vs edited via birth-time. Mechanical categorizer — produces the structured list; caller adds narrative. Usable ad-hoc ("what did we write today?") or as a sub-step inside /daily-wrap's broader-day scan. Trigger on "/kb-recap", "kb recap", "what did we write", "kb deltas", "kb changes today".
+description: Categorized recap of KB files created/modified in a date range. Groups by note type (source/concept/synthesis/entity/etc.) and topic. Trigger: '/kb-recap', 'kb recap', 'what did we write today'.
 user-invocable: true
 allowed-tools:
   - Bash

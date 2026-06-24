@@ -1,6 +1,6 @@
 ---
 name: research-prospector
-description: Use to find and rank external sources for a research topic. Searches the web, evaluates source quality, and returns a ranked reading-list (title/URL/relevance/type/quality-score). Does NOT read full source content — that's the source-reader's job. Best for bulk bootstrapping a topic's reading-list (15-25 entries) or filling gaps in an existing list.
+description: Find and rank external sources for a research topic. Returns ranked reading-list (title/URL/relevance/quality). Does NOT read source content (that's source-reader). Best for bulk bootstrapping reading-lists or filling gaps.
 tools: WebSearch, WebFetch, Read, Grep, Glob, Bash
 model: sonnet
 color: purple

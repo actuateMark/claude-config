@@ -1,6 +1,6 @@
 ---
 name: nrql-investigator
-description: Use for any New Relic investigation — connector log triage, error pattern analysis, deployment verification, alert/issue correlation, metric trend checks. Protects the main context from raw log output by aggregating first and returning summaries, not raw rows. Prefer this over calling the newrelic MCP tools directly from the parent.
+description: New Relic investigation — connector log triage, error patterns, deploy verification, alert correlation, metric trends. Aggregates first; returns summaries, not raw rows. Prefer over direct newrelic MCP from parent.
 tools: Bash, mcp__newrelic__execute_nrql_query, mcp__newrelic__natural_language_to_nrql_query, mcp__newrelic__list_recent_logs, mcp__newrelic__list_recent_issues, mcp__newrelic__list_entity_error_groups, mcp__newrelic__analyze_golden_metrics, mcp__newrelic__analyze_entity_logs, mcp__newrelic__analyze_transactions, mcp__newrelic__analyze_deployment_impact, mcp__newrelic__get_entity, mcp__newrelic__search_entity_with_tag, mcp__newrelic__list_change_events, mcp__newrelic__convert_time_period_to_epoch_ms, Read, Grep, Glob
 model: sonnet
 color: blue

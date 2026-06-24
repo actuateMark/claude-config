@@ -1,6 +1,6 @@
 ---
 name: actuate-pr-reviewer
-description: Use to review PRs across any Actuate repo (vms-connector, actuate_admin, actuate-inference-api, actuate-libraries, etc.). Applies the KB's security-hardening checklist, code-review checklist, and pydantic-as-contract rules. Returns a prioritized list of issues (blockers vs. nits). Prefer this over generic code review when the repo is in `/home/mork/work/`.
+description: Review PRs in any Actuate repo using KB security-hardening + code-review + pydantic-as-contract checklists. Returns blockers vs. nits. Prefer over generic code-review for repos in `/home/mork/work/`.
 tools: Bash, Read, Grep, Glob
 model: opus
 color: red

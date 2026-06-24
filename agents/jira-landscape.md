@@ -1,6 +1,6 @@
 ---
 name: jira-landscape
-description: Use to map the current Jira landscape — find tickets related to an initiative, list what a person is working on, identify blockers or stalled epics, trace ticket relationships, get the state of H1.x workstreams. Protects the main context from JSON dumps by returning summarized workstream status. Prefer this over calling atlassian MCP tools directly from the parent.
+description: Map the Jira landscape — tickets for an initiative, someone's WIP, blockers/stalled epics, workstream state. Returns summaries, not JSON dumps. Prefer over direct atlassian MCP from parent.
 tools: mcp__atlassian__searchJiraIssuesUsingJql, mcp__atlassian__getJiraIssue, mcp__atlassian__getJiraIssueRemoteIssueLinks, mcp__atlassian__getTransitionsForJiraIssue, mcp__atlassian__getVisibleJiraProjects, mcp__atlassian__getJiraProjectIssueTypesMetadata, mcp__atlassian__lookupJiraAccountId, mcp__atlassian__getAccessibleAtlassianResources, Read, Grep
 model: haiku
 color: cyan

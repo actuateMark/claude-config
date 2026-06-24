@@ -1,6 +1,6 @@
 ---
 name: todos-audit
-description: Deeper periodic audit of mark-todos — stale workstreams, orphaned Jira tickets, workstreams without tickets, priority drift, duplicate sections, missing sub-tasks, stale frontmatter. Read-only by default with interactive follow-up to fix. Run weekly or on-demand. Trigger on "todos audit", "audit todos", "review todos", "check workstreams", "/todos-audit".
+description: Periodic audit of mark-todos — stale workstreams, orphaned tickets, priority drift, duplicate sections. Read-only with interactive follow-up. Trigger: '/todos-audit', 'audit todos'.
 user-invocable: true
 allowed-tools:
   - Read
@@ -67,6 +67,32 @@ Every row in `## Archive` should link to an existing daily note in `topics/perso
 ### 10. Today's Scope hygiene
 
 The `## Today's Scope` section's date should be today or yesterday. If older, [[skill-daily-wrap|/daily-wrap]] has been missed — surface this loudly.
+
+### 11. Section size discipline
+
+`mark-todos.md` is hot-path (read every session); bloat is friction. Per the CLAUDE.md "Mark-todos discipline" rule:
+
+- **Per-§N target:** ~30 lines.
+- **Per-§N hard ceiling:** 60 lines.
+- **Whole-file soft cap:** ~1500 lines.
+
+Flag any §N exceeding 60 lines. Compute via:
+
+```bash
+awk '/^## [0-9]+\./{section=$0; line_start=NR; next}
+     /^---$/ && section{ print NR-line_start, section; section="" }
+     END{ if (section) print NR-line_start, section }' \
+     "$KB_ROOT/topics/personal-notes/notes/entities/mark-todos.md" \
+  | sort -rn | awk '$1 > 60'
+```
+
+For each offender, suggest:
+- Factor verbose context paragraphs into a KB synthesis note (`{date}_section-N-context.md`)
+- Replace inline content with a wikilink + 1-line summary
+- Move closed sub-items to the appropriate daily note immediately (don't wait for `/daily-wrap`)
+- Move "Hard constraints" / "Architecture" / "Decision history" to KB ADR notes
+
+The audit is **a reminder, not a blocker** — bloat is permitted but should be paid down soon.
 
 ## Procedure
 

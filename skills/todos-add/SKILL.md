@@ -1,6 +1,6 @@
 ---
 name: todos-add
-description: Interactive scaffold for adding a new workstream section to mark-todos. Asks for title, tickets, status, priority, checklist, cross-refs; inserts at the right §N position with format consistent with existing sections. Trigger on "todos add", "add workstream", "add todo", "new workstream", "/todos-add".
+description: Interactive scaffold for adding a new §N workstream to mark-todos. Prompts for title, tickets, status, priority, checklist. Trigger: '/todos-add', 'add workstream'.
 user-invocable: true
 allowed-tools:
   - Read

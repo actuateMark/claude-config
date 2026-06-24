@@ -1,6 +1,6 @@
 ---
 name: stage-release
-description: Push changes from a feature branch to develop via PR, watch CI, merge, and verify the dev deployment. Handles the full cycle from PR creation through live verification. Trigger on "stage release", "push to dev", "deploy to dev", "merge to develop", "ship to dev".
+description: Push a feature branch to develop via PR, watch CI, merge, verify dev deploy. Full cycle PR → live verification. Trigger: '/stage-release', 'push to dev'.
 user-invocable: true
 allowed-tools:
   - Bash

@@ -1,6 +1,6 @@
 ---
 name: repo-scan
-description: Survey open GitHub issues across major Actuate repos (not just Mark's assigned). Ranks issues into high-impact and low-hanging-fruit buckets with scored heuristics. Read-only digest — returns titles/labels/assignee/score, not full bodies. Invoked automatically by /daily-scope every morning (user preference 2026-04-23); also runs standalone. Trigger on "repo scan", "scan repos", "low hanging fruit", "what should I pick up", "/repo-scan".
+description: Survey open GitHub issues across major Actuate repos. Ranks into high-impact + low-hanging-fruit buckets. Read-only digest. Trigger: '/repo-scan', 'repo scan', 'low hanging fruit'.
 user-invocable: true
 allowed-tools:
   - Bash
@@ -40,7 +40,54 @@ Override with `--repos` for a narrower (or broader) sweep.
 
 ## Procedure
 
-### Step 1 — Fetch
+### Step 0 — Three-tier preamble (canonical pattern; do not skip)
+
+This skill follows the [[2026-04-30_three-tier-routine-check-pattern|three-tier routine check pattern]]. **Walk the tiers; stop at the first that succeeds.** See `~/.claude/CLAUDE.md` § "Routine Checks: Three-Tier Pattern" for the global rule and [[2026-04-30_morning-prep-scripts-runbook]] for per-script debug playbooks (manual invocation, common errors, where outputs land).
+
+**Tier 1 — Firebat script (canonical)**
+
+```bash
+# Read today's pre-computed digest from morning-prep on the Firebat.
+DIGEST=$(curl -fsS --max-time 5 "http://mork-firebat/logs/repo-scan-$(date +%F).stdout" 2>/dev/null)
+SUMMARY=$(curl -fsS --max-time 5 "http://mork-firebat/logs/morning-prep-latest.summary.json" 2>/dev/null)
+# If summary shows repo-scan succeeded today AND digest is non-empty, use it and stop.
+```
+
+If the cache is fresh (≤8h) and the summary's `skills["repo-scan"].exit_code == 0`, fold the digest into the caller's flow and exit. **Do not run anything else.** That digest already wrote the KB scan note + per-repo catalogs + 9 dashboard sink signals via Firebat's morning-prep batch.
+
+**Tier 2 — Local laptop script (fallback)**
+
+```bash
+if [ -x ~/bin/repo-scan ]; then
+  ~/bin/repo-scan "$@"     # honors --repos, --no-kb, --no-sink
+  exit $?
+fi
+```
+
+The script does the full pipeline locally — fetch via `gh issue list` ×7 (open) + ×7 (closed-60d), delegates scoring to `~/.claude/skills/repo-scan/curate.py`, writes the KB scan + per-repo catalogs + dashboard sink. Same Python source as Firebat (canonical at `/home/mork/work/local_network_scripts/files/repo-scan.sh`).
+
+**Tier 3 — LLM skill (last resort + diagnostic)**
+
+If neither Tier 1 nor Tier 2 worked, run the inline LLM-orchestrated flow in Steps 1-7 below. **Additionally, when LLM is the active tier, you have a diagnostic obligation:**
+
+1. Identify why the script failed:
+   - `~/bin/repo-scan` not installed → propose installing it (`cp /home/mork/work/local_network_scripts/files/repo-scan.sh ~/bin/repo-scan && chmod 755 ~/bin/repo-scan`)
+   - `gh auth status` failed → tell user to `gh auth login`
+   - `curate.py` missing or broken → check `~/.claude/skills/repo-scan/curate.py`; if broken, fix and offer to commit the fix
+   - Firebat unreachable → note in [[firebat-minipc-access]] follow-ups; was it a tailnet drop or genuine outage?
+2. **Patch where mechanical:** if a path bug or regex issue is fixable in the .sh file, edit it now in `/home/mork/work/local_network_scripts/files/repo-scan.sh`, mention the change, suggest a phase-13 redeploy.
+3. **Surface to the user** if the failure needs human intervention (creds, IAM, network), with exact remediation commands.
+4. **Log the diagnosis** in today's daily note's `## Notes / Learnings` so it doesn't recur silently.
+
+The script is sibling to `~/bin/git-fetch-major-repos.sh` on the Firebat:
+- `git-fetch-major-repos` → branches / commits / PRs → `/app/repos/`
+- `repo-scan` → issues / scoring / dashboard signals → same `/app/repos/`
+
+Both are pure-Python, both feed the per-repo cards and the code-health leaderboard.
+
+---
+
+### Step 1 — Fetch (LLM-fallback only)
 
 For each repo, in parallel:
 

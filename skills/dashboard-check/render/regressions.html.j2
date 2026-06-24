@@ -6,12 +6,16 @@
 <style>{{ css }}</style>
 </head>
 <body>
-{% from "macros.j2" import status_badge %}
+{% from "macros.j2" import status_badge, nav_tabs, site_nav %}
+
+{{ site_nav("ops") }}
 
 <header>
   <h1>Regressions</h1>
-  <p class="meta">Snapshot: <code>{{ snapshot_date }}</code> &middot; <a href="index.html">← back to index</a></p>
+  <p class="meta">Snapshot: <code>{{ snapshot_date }}</code></p>
 </header>
+
+{{ nav_tabs("regressions", regressions_count=regressions | length) }}
 
 {% if regressions %}
 <section>

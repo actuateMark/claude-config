@@ -1,6 +1,6 @@
 ---
 name: write-external-docs
-description: Write or review API documentation for an external partner audience. Strips internal details, writes for mid-level engineers, creates per-model/endpoint pages with examples. Trigger on "write docs", "external docs", "partner docs", "API docs", "clean up docs", "review docs for external".
+description: Write or review API docs for external partner audience — strips internal details, mid-level engineer audience, per-model/endpoint pages with examples. Trigger: '/write-external-docs', 'partner docs'.
 user-invocable: true
 allowed-tools:
   - Read

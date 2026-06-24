@@ -6,12 +6,16 @@
 <style>{{ css }}</style>
 </head>
 <body>
-{% from "macros.j2" import status_badge, signal_item, signal_list_header %}
+{% from "macros.j2" import status_badge, signal_item, signal_list_header, nav_tabs, site_nav %}
+
+{{ site_nav("ops") }}
 
 <header>
   <h1>{{ component }}</h1>
-  <p class="meta">Snapshot: <code>{{ snapshot_date }}</code> &middot; <a href="../index.html">← back to index</a></p>
+  <p class="meta">Snapshot: <code>{{ snapshot_date }}</code></p>
 </header>
+
+{{ nav_tabs("component", prefix="../", regressions_count=regressions_count) }}
 
 <section>
   <div class="signal-list">

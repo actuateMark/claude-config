@@ -1,6 +1,6 @@
 ---
 name: generate-project-docs
-description: Generate comprehensive project documentation (API docs, backend architecture, testing guides) for any repository. Creates docs/, sets up Confluence sync via GitHub Actions, generates a bespoke per-project maintenance skill, verifies accuracy, and adds a CLAUDE.md rule. Trigger on "generate docs", "create documentation", "document this project", "set up project docs", "docs generation".
+description: Generate comprehensive project docs (API, architecture, testing) for a repo. Creates docs/, sets up Confluence sync, generates per-project maintenance skill, adds CLAUDE.md rule. Trigger: '/generate-project-docs', 'generate docs'.
 user-invocable: true
 allowed-tools:
   - Bash

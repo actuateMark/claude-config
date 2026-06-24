@@ -1,6 +1,6 @@
 ---
 name: release-chain-watcher
-description: Use to monitor a release as it moves through the Actuate deployment chain — PR CI checks, merge, ArgoCD sync, post-deploy NR health. Understands branch semantics (feature → stage → rearchitecture → prod, library main auto-publish). Run in background for long-running deploys. Prefer this over polling `gh pr checks` and NR separately from the parent.
+description: Monitor a release through the Actuate chain — PR CI, merge, ArgoCD sync, post-deploy NR health. Knows branch semantics (feature → stage → rearchitecture → prod, library main auto-publish). Run in background for long deploys.
 tools: Bash, mcp__newrelic__execute_nrql_query, mcp__newrelic__list_recent_issues, mcp__newrelic__list_recent_logs, mcp__newrelic__list_entity_error_groups, mcp__newrelic__analyze_deployment_impact, mcp__newrelic__list_change_events, Read, Grep
 model: sonnet
 color: orange

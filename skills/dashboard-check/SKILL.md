@@ -1,6 +1,6 @@
 ---
 name: dashboard-check
-description: Generate the local static HTML operational dashboard at ~/Documents/worklog/dashboard/. Queries the signal catalog, classifies status (green/yellow/red), runs regression detection vs prior-day and 7-day trailing, writes a dated HTML snapshot + updates `latest/` symlink, appends one observation per signal to the shared sink JSONL, and returns exit code 0/1/2. Invoke during morning rituals, after every launch, and ad-hoc. Trigger on "dashboard check", "dashboard", "run dashboard", "/dashboard-check".
+description: Generate the local operational dashboard at ~/Documents/worklog/dashboard/. Classifies signals green/yellow/red, regression-detects, writes dated snapshot + observations sink. Trigger: '/dashboard-check', 'dashboard'.
 user-invocable: true
 allowed-tools:
   - Read

@@ -1,6 +1,6 @@
 ---
 name: kb-sync
-description: Refresh the knowledge base by re-scanning Confluence and Jira for updates. Identifies stale topics and updates them with current data. Trigger on "kb sync", "refresh kb", "update kb", "sync knowledge base", "kb is stale", "refresh knowledge base".
+description: Refresh the KB by re-scanning Confluence and Jira for updates. Identifies stale topics and updates them. Trigger: '/kb-sync', 'refresh kb'.
 user-invocable: true
 allowed-tools:
   - Bash
@@ -31,13 +31,18 @@ Refresh the Obsidian knowledge base at `/home/mork/Documents/worklog/knowledgeba
 
 ## Procedure
 
-1. **Read `_checkpoint.md`** to determine last sync date.
-2. **Read `_index.md`** to understand current KB state.
+**CLI-first.** Health probe `~/.local/bin/obsidian vault 2>&1 | head -1`; if it succeeds, prefer the CLI for the scan-heavy parts of this skill.
+
+1. **Read `_checkpoint.md`** to determine last sync date. (`obsidian read path=_checkpoint.md` or filesystem Read.)
+2. **Read `_index.md`** to understand current KB state. (`obsidian read path=_index.md` or filesystem Read.)
 3. **For each topic (or the specified topic):**
-   a. Read the `_summary.md` to understand what's tracked
-   b. Check Confluence pages referenced in frontmatter (`confluence:` fields) for updates since last sync
-   c. Check Jira tickets referenced in frontmatter (`jira:` fields) for status changes
-   d. Search for new pages/tickets not yet in the KB
+   a. Read the `_summary.md` to understand what's tracked. Use `obsidian read path=topics/<slug>/_summary.md`.
+   b. Find notes referencing Confluence/Jira via the CLI rather than recursive Grep:
+      - `obsidian search query="confluence:"` (filenames + matches across vault)
+      - `obsidian search query="jira:"` for tickets
+      - For backlinks of a specific page anchor: `obsidian backlinks file=<anchor>`
+   c. Check Confluence pages and Jira tickets surfaced in (b) for updates since last sync (via the atlassian MCP tools).
+   d. Search for new pages/tickets not yet in the KB (CQL/JQL via atlassian MCP).
 4. **Launch parallel agents** for different Confluence spaces and Jira projects to maximize throughput.
 5. **Update notes:**
    - Update entity notes with current Jira statuses and assignments

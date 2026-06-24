@@ -1,6 +1,6 @@
 ---
 name: release
-description: Release this session's claim from the shared session-claims table in mark-todos.md. Run when finishing work or switching scope. Removes the row whose CWD matches current session's CWD (or the row matching an explicit label arg). Trigger on "/release", "release claim", "done with this session".
+description: Release this session's claim from the session-claims table in mark-todos.md. Run when work wraps or scope switches. Matches by CWD or label. Trigger: '/release', 'release claim'.
 user-invocable: true
 allowed-tools:
   - Read

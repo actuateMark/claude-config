@@ -1,6 +1,6 @@
 ---
 name: cost-check
-description: AWS Cost Explorer query skill. Runs CE queries via the `prod` AWS profile (account 388576304176) with NR-style discipline — aggregate first, summarize, never dump raw rows. Use directly for ad-hoc cost queries or invoke as a sub-skill from other skills to surface cost-side signals alongside operational health. Trigger on "cost check", "run cost query", "aws cost", "cost explorer", "/cost-check".
+description: AWS Cost Explorer queries via the prod profile (388576304176). Aggregate-first discipline; never raw rows. Standalone or sub-skill. Trigger: '/cost-check', 'aws cost', 'cost explorer'.
 user-invocable: true
 allowed-tools:
   - Bash

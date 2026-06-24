@@ -534,3 +534,171 @@ code.threshold {
 .mini-spark { width: 200px; height: 24px; vertical-align: middle; }
 .mini-spark polyline { fill: none; stroke: var(--accent); stroke-width: 1.5; }
 .spark-meta { color: var(--muted); font-size: 0.85em; margin-left: 0.6rem; }
+
+/* --- Page tabs (Overview / Trends / Regressions) --- */
+.page-tabs {
+  display: flex;
+  gap: 0;
+  margin: 1rem 0 1.5rem;
+  border-bottom: 1px solid var(--border);
+}
+.page-tab {
+  padding: 0.5rem 1rem;
+  color: var(--muted);
+  text-decoration: none;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 4px 4px 0 0;
+  margin-bottom: -1px;
+  font-weight: 500;
+  font-size: 0.95rem;
+  transition: color 80ms, background 80ms;
+}
+.page-tab:hover {
+  color: var(--fg);
+  background: rgba(110, 118, 129, 0.06);
+}
+.page-tab-active {
+  color: var(--fg);
+  border-color: var(--border);
+  border-bottom-color: var(--bg);
+  background: var(--bg);
+}
+.page-tab-count {
+  color: var(--red);
+  font-size: 0.85em;
+  margin-left: 0.2rem;
+}
+
+/* --- Trends section: full-size SVG line charts driven by sink history --- */
+.trends-section { margin-top: 2rem; }
+.trends-meta { color: var(--muted); font-size: 0.9rem; margin: 0 0 0.75rem; }
+.trend-component-block { margin: 1rem 0 1.25rem; }
+.trend-component-block h3 { margin-bottom: 0.5rem; }
+.trend-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 0.75rem;
+}
+.trend-card {
+  background: rgba(110, 118, 129, 0.06);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.6rem 0.75rem 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.trend-card.trend-red { border-color: var(--red); background: rgba(248, 81, 73, 0.06); }
+.trend-card.trend-yellow { border-color: var(--yellow); background: rgba(210, 153, 34, 0.06); }
+.trend-card.trend-green { border-color: rgba(63, 185, 80, 0.4); }
+.trend-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+.trend-name { color: var(--fg); text-decoration: none; }
+.trend-name:hover { text-decoration: underline; }
+.trend-current { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--fg); font-weight: 600; }
+.trend-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+  background: rgba(13, 17, 23, 0.4);
+  border-radius: 3px;
+}
+.trend-axis { stroke: var(--border); stroke-width: 1; }
+.trend-line {
+  fill: none;
+  stroke: var(--blue);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.trend-card.trend-red .trend-line { stroke: var(--red); }
+.trend-card.trend-yellow .trend-line { stroke: var(--yellow); }
+.trend-card.trend-green .trend-line { stroke: var(--green); }
+.trend-point { fill: var(--fg); fill-opacity: 0.7; }
+.trend-card.trend-red .trend-point { fill: var(--red); }
+.trend-card.trend-yellow .trend-point { fill: var(--yellow); }
+.trend-card.trend-green .trend-point { fill: var(--green); }
+.trend-guide {
+  fill: none;
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  opacity: 0.7;
+}
+.trend-guide-yellow { stroke: var(--yellow); }
+.trend-guide-red { stroke: var(--red); }
+.trend-guide-label {
+  font-size: 9px;
+  font-family: "SF Mono", Consolas, monospace;
+  fill-opacity: 0.85;
+}
+.trend-guide-label.trend-guide-yellow { fill: var(--yellow); }
+.trend-guide-label.trend-guide-red { fill: var(--red); }
+.trend-x-label, .trend-y-label {
+  font-size: 9px;
+  font-family: "SF Mono", Consolas, monospace;
+  fill: var(--muted);
+}
+.trend-foot {
+  display: flex;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.trend-foot-sep { opacity: 0.6; }
+.trends-skipped {
+  margin-top: 1rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.trends-skipped summary { cursor: pointer; }
+.trends-skipped p { margin: 0.4rem 0 0; line-height: 1.8; }
+.trends-skipped code { font-size: 0.85em; }
+
+/* --- Site-wide nav (links to other surfaces on this box) --- */
+.site-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.4rem;
+  margin: 0 0 1rem;
+  padding: 0.5rem 0.75rem;
+  background: rgba(110, 118, 129, 0.08);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+.site-nav-label {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.78em;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-right: 0.4rem;
+}
+.site-nav-link {
+  color: var(--blue);
+  text-decoration: none;
+  padding: 0.05rem 0.35rem;
+  border-radius: 3px;
+  transition: background 80ms, color 80ms;
+}
+.site-nav-link:hover {
+  background: rgba(88, 166, 255, 0.12);
+  color: var(--fg);
+}
+.site-nav-active {
+  color: var(--fg);
+  background: rgba(88, 166, 255, 0.18);
+  font-weight: 600;
+}
+.site-nav-sep {
+  color: var(--muted);
+  user-select: none;
+  opacity: 0.6;
+}

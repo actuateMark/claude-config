@@ -1060,6 +1060,21 @@ _INCOMING_BLOCK_RE = re.compile(
 )
 _INCOMING_UPDATED_RE = re.compile(r"(?m)^incoming_updated:\s*.*\n?")
 
+# Legacy-damage cleanup: pre-2026-05-11 buggy regex left orphan runs scattered
+# across many files. The regex above fixed the SOURCE of damage but doesn't
+# clean up the existing damage — each subsequent Pass 4 run rebuilt `incoming:`
+# correctly while leaving the orphan run intact, perpetually. This pattern
+# strips orphan runs: a col-0 `- ` bullet whose content contains a slash
+# (paths-like), followed optionally by col-2+ indented `- ` continuations. The
+# slash requirement guards against accidentally eating legitimate top-level
+# YAML list bullets that may exist in non-frontmatter contexts. (Bitten
+# 2026-05-22: kb-lint autofix accidentally re-keyed the orphans as `outgoing:`
+# before realising they were stale `incoming:` snapshots, not lost outgoing
+# data; the real fix is to drop them here at the source.)
+_ORPHAN_BULLET_RUN_RE = re.compile(
+    r"(?m)^-[ \t]+[^\n]*?/[^\n]*\n(?:[ \t]+-[ \t]+[^\n]*\n)*"
+)
+
 
 def apply_incoming_edit(text: str, body_start: int, incoming: list[str]) -> str:
     """Insert/replace the `incoming:` block in the file's frontmatter.
@@ -1079,6 +1094,9 @@ def apply_incoming_edit(text: str, body_start: int, incoming: list[str]) -> str:
     # Strip any existing incoming / incoming_updated blocks.
     fm_clean = _INCOMING_BLOCK_RE.sub("", fm_text)
     fm_clean = _INCOMING_UPDATED_RE.sub("", fm_clean)
+    # Legacy-damage cleanup: drop orphan-bullet runs left over from the
+    # pre-2026-05-11 buggy regex. Idempotent on clean frontmatter.
+    fm_clean = _ORPHAN_BULLET_RUN_RE.sub("", fm_clean)
 
     if not incoming:
         # Just leave the cleaned frontmatter (no incoming block).

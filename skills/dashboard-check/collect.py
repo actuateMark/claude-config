@@ -212,11 +212,221 @@ def cw_metric_onboarder_invocations_us(profile: str) -> float:
     return float(dps[0]["Sum"]) if dps else 0.0
 
 
-def ce_s3_daily_total(profile: str) -> float:
-    """`cost_s3_daily_total` — yesterday's S3 UnblendedCost, USD."""
+def _cw_metric_lambda_errors(profile: str, region: str, function_name: str) -> float:
+    """Sum(Errors) for a Lambda function over the last 1h. Returns 0 if no
+    datapoints (i.e. function had zero invocations or zero errors)."""
     s = _boto_session(profile)
-    client = s.client("ce", region_name="us-east-1")  # CE only lives in us-east-1
-    end = datetime.now(timezone.utc).date()
+    client = s.client("cloudwatch", region_name=region)
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(hours=1)
+    resp = client.get_metric_statistics(
+        Namespace="AWS/Lambda",
+        MetricName="Errors",
+        Dimensions=[{"Name": "FunctionName", "Value": function_name}],
+        StartTime=start,
+        EndTime=end,
+        Period=3600,
+        Statistics=["Sum"],
+    )
+    dps = resp.get("Datapoints", [])
+    return float(dps[0]["Sum"]) if dps else 0.0
+
+
+def cw_metric_inference_api_prod_errors_uw2(profile: str) -> float:
+    """`inferenceapi_prod_errors_us_west_2` — Sum(Errors) for InferenceAPI-prod
+    in us-west-2 over the last 1h. Reactive companion to ecr_pruning_risk_count:
+    if ECR-prune monitoring fails for any reason and prod takes down inference,
+    THIS signal catches it on the next dashboard tick."""
+    return _cw_metric_lambda_errors(profile, "us-west-2", "InferenceAPI-prod")
+
+
+def cw_metric_inference_api_prod_errors_euw1(profile: str) -> float:
+    """`inferenceapi_prod_errors_eu_west_1` — same for the EU region."""
+    return _cw_metric_lambda_errors(profile, "eu-west-1", "InferenceAPI-prod")
+
+
+# --- AutoPatrol cleanup Lambda signals ----------------------------------------
+#
+# Replaces the bulk of the /autopatrol-cleanup-lambda-check skill's mechanical
+# checks. The skill stays around for interpretive bits (DDB drift scan,
+# onboarder hotfix code-grep, deploy-workflow integrity) but the per-tick
+# health surface is now signal-based and graphs/regresses on the dashboard.
+
+_CLEANUP_LAMBDA = "immix-autopatrol-schedule-cleanup"
+_CLEANUP_LOG_GROUP = "/aws/lambda/immix-autopatrol-schedule-cleanup"
+_CLEANUP_REGION = "us-west-2"
+# Stage SQS — this is what's actually live (prod queue lands at Step F).
+_CLEANUP_DLQ_URL = (
+    "https://sqs.us-west-2.amazonaws.com/388576304176/"
+    "autopatrol_stale_schedule_cleanup_dlq_dev.fifo"
+)
+_CLEANUP_MAIN_QUEUE_URL = (
+    "https://sqs.us-west-2.amazonaws.com/388576304176/"
+    "autopatrol_stale_schedule_cleanup_dev.fifo"
+)
+
+
+def _cw_log_filter_count_1h(profile: str, log_group: str, pattern: str) -> int:
+    """Count log events matching `pattern` in `log_group` over the trailing 1h."""
+    s = _boto_session(profile)
+    client = s.client("logs", region_name=_CLEANUP_REGION)
+    end_ms = int(time.time() * 1000)
+    start_ms = end_ms - 3600 * 1000
+    paginator = client.get_paginator("filter_log_events")
+    pages = paginator.paginate(
+        logGroupName=log_group,
+        startTime=start_ms,
+        endTime=end_ms,
+        filterPattern=pattern,
+    )
+    count = 0
+    for page in pages:
+        count += len(page.get("events", []))
+    return count
+
+
+def _sqs_approx_message_count(profile: str, queue_url: str) -> int:
+    """ApproximateNumberOfMessages on a queue. 0 if attribute missing."""
+    s = _boto_session(profile)
+    client = s.client("sqs", region_name=_CLEANUP_REGION)
+    resp = client.get_queue_attributes(
+        QueueUrl=queue_url,
+        AttributeNames=["ApproximateNumberOfMessages"],
+    )
+    return int(resp.get("Attributes", {}).get("ApproximateNumberOfMessages", 0))
+
+
+def cw_sqs_cleanup_lambda_dlq_depth(profile: str) -> int:
+    """`cleanup_lambda_dlq_depth` — DLQ depth on the cleanup Lambda's SQS
+    consumer. Should always be 0; non-zero = 3+ consecutive Lambda failures
+    on a message (matches the SKILL.md 'always 0' invariant)."""
+    return _sqs_approx_message_count(profile, _CLEANUP_DLQ_URL)
+
+
+def cw_sqs_cleanup_lambda_main_queue_depth(profile: str) -> int:
+    """`cleanup_lambda_main_queue_depth` — backlog on the cleanup Lambda's
+    main queue. Healthy = 0..tens during emit bursts. >100 sustained = Lambda
+    lagging behind connector emit rate."""
+    return _sqs_approx_message_count(profile, _CLEANUP_MAIN_QUEUE_URL)
+
+
+def cw_log_cleanup_lambda_errors(profile: str) -> int:
+    """`cleanup_lambda_errors` — ERROR log lines/h. Should be 0."""
+    return _cw_log_filter_count_1h(profile, _CLEANUP_LOG_GROUP, "ERROR")
+
+
+def cw_log_cleanup_lambda_would_patch_rate(profile: str) -> int:
+    """`cleanup_lambda_would_patch_rate` — 'would PATCH' lines/h. Fires only
+    when CLEANUP_ENABLED=false OR DRY_RUN=true. Post-2026-04-23 flip should
+    be ~0; lingering hits = something running in dark mode."""
+    return _cw_log_filter_count_1h(profile, _CLEANUP_LOG_GROUP, "would PATCH")
+
+
+def cw_log_cleanup_lambda_actual_disable_rate(profile: str) -> int:
+    """`cleanup_lambda_actual_disable_rate` — actual PATCH-Active=False fires
+    against AutoPatrolSchedule. Manager-visible audit metric. Spike >10/h =
+    flap risk."""
+    return _cw_log_filter_count_1h(
+        profile, _CLEANUP_LOG_GROUP, "disabled admin schedule"
+    )
+
+
+def cw_log_cleanup_lambda_anomaly_reset_rate(profile: str) -> int:
+    """`cleanup_lambda_anomaly_reset_rate` — schedules that hit threshold but
+    were NOT disabled because Immix says they're Active. Safety-net firing —
+    elevated rate = our connector vs Immix mismatch ongoing.
+
+    Filter pattern wrapped in double quotes — CloudWatch's filter-pattern
+    grammar treats ':' as a special term separator, so an unquoted literal
+    'anomaly: bucket=' raises InvalidParameterException."""
+    return _cw_log_filter_count_1h(
+        profile, _CLEANUP_LOG_GROUP, '"anomaly: bucket="'
+    )
+
+
+def cw_lambda_cleanup_lambda_event_source_mapping_state(profile: str) -> int:
+    """`cleanup_lambda_event_source_mapping_state` — 1 if the SQS event-source
+    mapping for the cleanup Lambda is Enabled, 0 otherwise. Step 1 of the
+    SKILL.md skill — if this is 0, nothing else matters: the consumer is off."""
+    s = _boto_session(profile)
+    client = s.client("lambda", region_name=_CLEANUP_REGION)
+    resp = client.list_event_source_mappings(FunctionName=_CLEANUP_LAMBDA)
+    mappings = resp.get("EventSourceMappings", [])
+    if not mappings:
+        return 0
+    return 1 if mappings[0].get("State") == "Enabled" else 0
+
+
+def ce_s3_daily_total(profile: str) -> float:
+    """`cost_s3_daily_total` — yesterday's S3 UnblendedCost, USD.
+
+    Kept as a standalone for backward compat; new per-service signals share
+    the cached `_ce_aggregate_yesterday` call below.
+    """
+    return _ce_aggregate_yesterday(profile).get("Amazon Simple Storage Service", 0.0)
+
+
+# --- Cost Explorer: cached per-day aggregate -----------------------------
+#
+# Every dashboard-check run that touches CE uses these two cached helpers so
+# we make at most TWO CE calls per run regardless of how many cost signals
+# are wired. CE is metered ($0.01/page) and the API is slow — caching here
+# is non-negotiable. Cache key is the UTC date so a single collector
+# invocation reuses results across signals; the next hourly run repopulates.
+
+_CE_AGGREGATE_CACHE: dict[str, dict[str, float]] = {}
+_CE_S3_BREAKDOWN_CACHE: dict[str, dict[str, float]] = {}
+
+
+def _ce_aggregate_yesterday(profile: str) -> dict[str, float]:
+    """Single CE call grouped by SERVICE, returns {service_name: usd_yesterday}.
+
+    Includes synthetic key `__total__`. Cached for the duration of the
+    process by the UTC date.
+    """
+    today = datetime.now(timezone.utc).date()
+    key = today.isoformat()
+    if key in _CE_AGGREGATE_CACHE:
+        return _CE_AGGREGATE_CACHE[key]
+    s = _boto_session(profile)
+    client = s.client("ce", region_name="us-east-1")
+    end = today
+    start = end - timedelta(days=1)
+    resp = client.get_cost_and_usage(
+        TimePeriod={"Start": str(start), "End": str(end)},
+        Granularity="DAILY",
+        Metrics=["UnblendedCost"],
+        GroupBy=[{"Type": "DIMENSION", "Key": "SERVICE"}],
+    )
+    out: dict[str, float] = {"__total__": 0.0}
+    rows = resp.get("ResultsByTime", [])
+    if rows:
+        for g in rows[0].get("Groups", []):
+            svc = g["Keys"][0]
+            cost = float(g["Metrics"]["UnblendedCost"]["Amount"])
+            if cost < 0.005:
+                continue  # rounding noise
+            out[svc] = round(cost, 2)
+            out["__total__"] += cost
+        out["__total__"] = round(out["__total__"], 2)
+    _CE_AGGREGATE_CACHE[key] = out
+    return out
+
+
+def _ce_s3_breakdown_yesterday(profile: str) -> dict[str, float]:
+    """Single CE call grouped by USAGE_TYPE filtered to S3.
+    Returns {classified_category: usd_yesterday} including __total__.
+
+    Classifier mirrors `/cost-check`'s S3 categorization (Tier1/2/3 + Storage
+    + DataTransfer + EarlyDelete + Retrieval + Other). Cached by UTC date.
+    """
+    today = datetime.now(timezone.utc).date()
+    key = today.isoformat()
+    if key in _CE_S3_BREAKDOWN_CACHE:
+        return _CE_S3_BREAKDOWN_CACHE[key]
+    s = _boto_session(profile)
+    client = s.client("ce", region_name="us-east-1")
+    end = today
     start = end - timedelta(days=1)
     resp = client.get_cost_and_usage(
         TimePeriod={"Start": str(start), "End": str(end)},
@@ -228,17 +438,115 @@ def ce_s3_daily_total(profile: str) -> float:
                 "Values": ["Amazon Simple Storage Service"],
             }
         },
+        GroupBy=[{"Type": "DIMENSION", "Key": "USAGE_TYPE"}],
     )
+
+    def classify(ut: str) -> str:
+        if "Tier1" in ut: return "tier1_put"
+        if "Tier2" in ut: return "tier2_get"
+        if "Tier3" in ut: return "tier3_replication"
+        if "Tier8" in ut or "Tier9" in ut: return "tier8_9_glacier"
+        if "TimedStorage" in ut or ("Storage" in ut and "Requests" not in ut): return "storage_gb_month"
+        if "DataTransfer" in ut or "AWS-Out-Bytes" in ut or "AWS-In-Bytes" in ut: return "data_transfer"
+        if "EarlyDelete" in ut: return "early_delete"
+        if "Retrieval" in ut: return "retrieval"
+        return "other"
+
+    out: dict[str, float] = {"__total__": 0.0}
     rows = resp.get("ResultsByTime", [])
-    if not rows:
-        return 0.0
-    return float(rows[0]["Total"]["UnblendedCost"]["Amount"])
+    if rows:
+        for g in rows[0].get("Groups", []):
+            ut = g["Keys"][0]
+            cost = float(g["Metrics"]["UnblendedCost"]["Amount"])
+            if cost < 0.005:
+                continue
+            cat = classify(ut)
+            out[cat] = out.get(cat, 0.0) + cost
+            out["__total__"] += cost
+    out = {k: round(v, 2) for k, v in out.items()}
+    _CE_S3_BREAKDOWN_CACHE[key] = out
+    return out
+
+
+# --- Per-service cost signal collectors ----------------------------------
+#
+# All read from the cached aggregate; cost is one CE call total per run.
+
+def ce_total_daily(profile: str) -> float:
+    return _ce_aggregate_yesterday(profile)["__total__"]
+
+
+def ce_top_services_daily(profile: str) -> dict[str, float]:
+    """Top-15 services by yesterday's cost, FACET dict for the dashboard."""
+    agg = _ce_aggregate_yesterday(profile)
+    items = [(k, v) for k, v in agg.items() if k != "__total__"]
+    items.sort(key=lambda kv: -kv[1])
+    return dict(items[:15])
+
+
+def _ce_service_daily(svc_name: str):
+    """Curry a per-service collector that pulls from the cached aggregate."""
+    def fn(profile: str) -> float:
+        return _ce_aggregate_yesterday(profile).get(svc_name, 0.0)
+    fn.__name__ = f"ce_service_{svc_name.replace(' ', '_').replace('-', '_')}"
+    return fn
+
+
+def ce_s3_breakdown_daily(profile: str) -> dict[str, float]:
+    """FACET dict of S3 USAGE_TYPE-classified categories."""
+    bd = _ce_s3_breakdown_yesterday(profile)
+    return {k: v for k, v in bd.items() if k != "__total__"}
+
+
+def ce_s3_tier3_daily(profile: str) -> float:
+    """Tier3 (replication / lifecycle) — the $44k/yr line item."""
+    return _ce_s3_breakdown_yesterday(profile).get("tier3_replication", 0.0)
+
+
+def ce_s3_storage_daily(profile: str) -> float:
+    """S3 storage GB-month component only."""
+    return _ce_s3_breakdown_yesterday(profile).get("storage_gb_month", 0.0)
+
+
+def ce_s3_tier1_daily(profile: str) -> float:
+    """S3 PUT request volume cost only."""
+    return _ce_s3_breakdown_yesterday(profile).get("tier1_put", 0.0)
 
 
 AWS_DISPATCH: dict[str, callable] = {
     "onboarder_activity_us": cw_log_onboarder_activity_us,
     "onboarder_lambda_invocations_us": cw_metric_onboarder_invocations_us,
+    "inferenceapi_prod_errors_us_west_2": cw_metric_inference_api_prod_errors_uw2,
+    "inferenceapi_prod_errors_eu_west_1": cw_metric_inference_api_prod_errors_euw1,
+    # AutoPatrol cleanup Lambda — see § "AutoPatrol cleanup Lambda signals"
+    "cleanup_lambda_dlq_depth": cw_sqs_cleanup_lambda_dlq_depth,
+    "cleanup_lambda_main_queue_depth": cw_sqs_cleanup_lambda_main_queue_depth,
+    "cleanup_lambda_errors": cw_log_cleanup_lambda_errors,
+    "cleanup_lambda_would_patch_rate": cw_log_cleanup_lambda_would_patch_rate,
+    "cleanup_lambda_actual_disable_rate": cw_log_cleanup_lambda_actual_disable_rate,
+    "cleanup_lambda_anomaly_reset_rate": cw_log_cleanup_lambda_anomaly_reset_rate,
+    "cleanup_lambda_event_source_mapping_state": cw_lambda_cleanup_lambda_event_source_mapping_state,
+    # Cost: aggregate + per-service (all share one cached CE call per run).
+    "cost_total_daily": ce_total_daily,
+    "cost_top_services_daily": ce_top_services_daily,
     "cost_s3_daily_total": ce_s3_daily_total,
+    "cost_ec2_compute_daily": _ce_service_daily("Amazon Elastic Compute Cloud - Compute"),
+    "cost_ec2_other_daily": _ce_service_daily("EC2 - Other"),
+    "cost_dynamodb_daily": _ce_service_daily("Amazon DynamoDB"),
+    "cost_ecs_daily": _ce_service_daily("Amazon Elastic Container Service"),
+    "cost_rds_daily": _ce_service_daily("Amazon Relational Database Service"),
+    "cost_vpc_daily": _ce_service_daily("Amazon Virtual Private Cloud"),
+    "cost_aws_config_daily": _ce_service_daily("AWS Config"),
+    "cost_cloudwatch_daily": _ce_service_daily("AmazonCloudWatch"),
+    "cost_elb_daily": _ce_service_daily("Amazon Elastic Load Balancing"),
+    "cost_glue_daily": _ce_service_daily("AWS Glue"),
+    "cost_sqs_daily": _ce_service_daily("Amazon Simple Queue Service"),
+    "cost_lambda_daily": _ce_service_daily("AWS Lambda"),
+    # Cost: S3 sub-categories (one extra cached CE call).
+    "cost_s3_breakdown_daily": ce_s3_breakdown_daily,
+    "cost_s3_tier3_daily": ce_s3_tier3_daily,
+    "cost_s3_storage_daily": ce_s3_storage_daily,
+    "cost_s3_tier1_daily": ce_s3_tier1_daily,
 }
 
 
@@ -308,10 +616,48 @@ def local_unit_restart_count_24h() -> int:
     return total
 
 
+def _billing_reconcile_json_path() -> Path:
+    return Path.home() / ".local" / "state" / "minipc-tasks" / "billing" / f"reconciliation-{datetime.now(timezone.utc).strftime('%Y-%m')}.json"
+
+
+def local_billing_production_unbilled_cams() -> int:
+    """Production cameras running billable products but not in usage_monthly.
+    Sourced from billing-reconcile-check.service daily JSON sink."""
+    p = _billing_reconcile_json_path()
+    if not p.exists():
+        return 0
+    data = json.loads(p.read_text())
+    return int(((data.get("unbilled") or {}).get("production_missing_subscription") or {}).get("cameras") or 0)
+
+
+def local_billing_reconcile_residual() -> int:
+    """Reconciliation residual — non-zero indicates a counting bug or schema drift."""
+    p = _billing_reconcile_json_path()
+    if not p.exists():
+        return 999
+    data = json.loads(p.read_text())
+    return int((data.get("reconciliation") or {}).get("residual") or 0)
+
+
+def local_billing_reconcile_freshness() -> int:
+    """Count of reconciliation JSON sinks written in the last 24h. Expected: 1."""
+    sink_dir = Path.home() / ".local" / "state" / "minipc-tasks" / "billing"
+    if not sink_dir.exists():
+        return 0
+    cutoff = time.time() - 86400
+    return sum(
+        1 for f in sink_dir.glob("reconciliation-*.json")
+        if f.is_file() and f.stat().st_mtime >= cutoff
+    )
+
+
 MINIPC_LOCAL_DISPATCH: dict[str, callable] = {
     "minipc_failed_user_units": local_failed_user_units,
     "minipc_failed_system_units": local_failed_system_units,
     "minipc_unit_starts_24h": local_unit_restart_count_24h,
+    "billing_production_unbilled_cams": local_billing_production_unbilled_cams,
+    "billing_reconcile_residual": local_billing_reconcile_residual,
+    "billing_reconcile_freshness": local_billing_reconcile_freshness,
 }
 
 
@@ -706,6 +1052,42 @@ def repo_ci_failure_rate_pct(repo_path: Path) -> float | None:
     return round(fails / len(considered) * 100, 1)
 
 
+def autopatrol_onboarder_healthcheck_hotfix(repo_path: Path) -> int | None:
+    """Boolean — is the 2026-04-23 healthcheck hotfix still in effect?
+
+    Reverting it (a `return` in the failure branch of `get_healthcheck()`)
+    recreates the silent early-return incident. Returns 1 if the failure
+    branch logs a warning AND has no `return`, 0 otherwise. Returns None
+    only if the source file is missing.
+    """
+    src = repo_path / "lambda_function.py"
+    if not src.exists():
+        return None
+    lines = src.read_text().splitlines()
+    call_idx = next(
+        (i for i, line in enumerate(lines) if "get_healthcheck()" in line),
+        None,
+    )
+    if call_idx is None:
+        return 0
+    if_idx = call_idx + 1
+    if if_idx >= len(lines) or "if " not in lines[if_idx]:
+        return 0
+    if_indent = len(lines[if_idx]) - len(lines[if_idx].lstrip())
+    body: list[str] = []
+    for j in range(if_idx + 1, len(lines)):
+        stripped = lines[j].lstrip()
+        if not stripped:
+            continue
+        if len(lines[j]) - len(stripped) <= if_indent:
+            break
+        body.append(lines[j])
+    block = "\n".join(body)
+    has_warning = "logging.warning(" in block or "log.warning(" in block
+    has_return = bool(re.search(r"^\s+return\b", block, re.M))
+    return 1 if (has_warning and not has_return) else 0
+
+
 GIT_LOCAL_DISPATCH: dict[str, callable] = {
     "repo_todo_fixme_count": repo_todo_fixme_count,
     "repo_actuate_frames_pin": repo_actuate_frames_pin,
@@ -718,6 +1100,7 @@ GIT_LOCAL_DISPATCH: dict[str, callable] = {
     "repo_stale_branches_count": repo_stale_branches_count,
     "repo_open_prs_p50_age_days": repo_open_prs_p50_age_days,
     "repo_ci_failure_rate_pct": repo_ci_failure_rate_pct,
+    "onboarder_healthcheck_hotfix_in_effect": autopatrol_onboarder_healthcheck_hotfix,
 }
 
 

@@ -1,6 +1,6 @@
 ---
 name: claim
-description: Claim a scope in the shared session-claims table so other concurrent Claude Code sessions see it and avoid duplicate work. Writes a row to the BEGIN/END-SESSION-CLAIMS block in mark-todos.md with label, scope, cwd, start time, and heartbeat. Use at the start of any non-trivial session that will work on a tracked §N workstream item. Trigger on "/claim", "claim scope", "register session".
+description: Claim a scope in the session-claims table inside mark-todos.md so concurrent sessions see it. Use at start of any session >15min on a §N item. Trigger: '/claim', 'claim scope'.
 user-invocable: true
 allowed-tools:
   - Read

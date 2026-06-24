@@ -112,17 +112,42 @@ def load_prior_snapshot(output_root: Path, current_date: str) -> dict[str, Any]:
 
 
 def classify(signal: dict, value: Any, baseline: float | None) -> str:
-    """Green/yellow/red per signal's thresholds. Returns 'informational' if no thresholds + no value."""
+    """Green/yellow/red per signal's thresholds. Returns 'informational' if no thresholds + no value.
+
+    For FACET dict values (e.g. {repo: count}), apply thresholds to each
+    numeric value and return the worst classification across keys. This is
+    what makes per-repo code-health regressions surface in the dashboard
+    summary line, not only in the leaderboard.
+    """
     if value is None:
         return "error"
     thresholds = signal.get("thresholds")
     if not thresholds:
         return "informational"
+
+    if isinstance(value, dict):
+        worst = "green"
+        any_numeric = False
+        for v in value.values():
+            try:
+                num = float(v)
+            except (TypeError, ValueError):
+                continue
+            any_numeric = True
+            sub = _classify_numeric(thresholds, num)
+            if STATUS_RANK[sub] > STATUS_RANK[worst]:
+                worst = sub
+        return worst if any_numeric else "informational"
+
     try:
         num = float(value)
     except (TypeError, ValueError):
         return "informational"
 
+    return _classify_numeric(thresholds, num)
+
+
+def _classify_numeric(thresholds: dict, num: float) -> str:
     if "red_above" in thresholds and num > thresholds["red_above"]:
         return "red"
     if "yellow_above" in thresholds and num > thresholds["yellow_above"]:
@@ -201,12 +226,17 @@ def _latest_sink_observation(signal_id: str, window_hours: float) -> tuple[dict 
     trailing.sort(key=lambda r: r.get("timestamp", ""))
 
     # For the "latest" entry, look across the full sink (no window), not just trailing,
-    # so we can still classify a signal as sink_stale rather than none.
+    # so we can still classify a signal as sink_stale rather than none. Include
+    # dashboard-check rows: they are this skill's own prior-run history, which is
+    # exactly what we want for graceful-failure fallback. write_sink_records runs
+    # AFTER evaluate_signals, so there is no current-run row to skip here.
     latest_any: dict | None = None
     for r in sink.read_all():
         if r.get("signal_id") != signal_id:
             continue
-        if r.get("source_skill") == "dashboard-check":
+        # Skip rows where the prior write itself was a failure marker; we want
+        # to fall back to the last known-good value, not a previous error state.
+        if r.get("value") is None or r.get("status") == "error":
             continue
         ts = r.get("timestamp", "")
         if latest_any is None or ts > latest_any.get("timestamp", ""):
@@ -338,6 +368,138 @@ def overall_status(evaluations: list[Evaluation]) -> str:
     return "informational"
 
 
+def build_trend_data(evaluations: list[Evaluation], window_hours: float = 24 * 7) -> list[dict]:
+    """For each evaluation with >=3 numeric data points in the trailing window,
+    produce a dict of pre-computed SVG chart data the template renders inline.
+
+    Reads the sink directly (including dashboard-check's own rows) so every cron
+    tick contributes a data point. This is intentionally different from
+    Evaluation.history — sparklines exclude dashboard-check rows to avoid
+    self-tailing, but trend charts WANT every tick.
+
+    Skips facet-dict signals — those already have a tabular breakdown drawer.
+    """
+    W, H = 480, 140
+    L, R, T, B = 40, 10, 10, 26
+    plot_w = W - L - R
+    plot_h = H - T - B
+
+    # Pull all rows in the window once; bucket by signal_id for O(N) walks.
+    all_recent = sink.read_recent(since_hours=window_hours)
+    by_sig: dict[str, list[dict]] = {}
+    for r in all_recent:
+        sid = r.get("signal_id")
+        if sid:
+            by_sig.setdefault(sid, []).append(r)
+
+    out: list[dict] = []
+    for ev in evaluations:
+        if isinstance(ev.value, dict):
+            continue
+        points: list[tuple[float, float]] = []
+        for r in by_sig.get(ev.signal_id, []):
+            v = r.get("value")
+            if not isinstance(v, (int, float)):
+                continue
+            ts = r.get("timestamp")
+            if not ts:
+                continue
+            try:
+                t = datetime.strptime(ts, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp()
+            except (ValueError, TypeError):
+                continue
+            points.append((t, float(v)))
+        # Append today's live value as the rightmost point if it's not already
+        # in the sink batch (the current run writes AFTER trend rendering, so
+        # we add it explicitly here).
+        if isinstance(ev.value, (int, float)) and ev.last_observed_at:
+            try:
+                t_now = datetime.strptime(ev.last_observed_at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp()
+                points.append((t_now, float(ev.value)))
+            except (ValueError, TypeError):
+                pass
+        # Dedupe identical timestamps (last write wins) and sort
+        seen: dict[float, float] = {}
+        for tx, vy in points:
+            seen[tx] = vy
+        points = sorted(seen.items())
+        if len(points) < 3:
+            continue
+
+        xs = [p[0] for p in points]
+        ys = [p[1] for p in points]
+        xmin, xmax = min(xs), max(xs)
+        ymin_data, ymax_data = min(ys), max(ys)
+        ymin, ymax = ymin_data, ymax_data
+
+        thr = ev.thresholds or {}
+        guide_specs: list[tuple[str, float, str]] = []
+        for key in ("yellow_above", "red_above", "yellow_below", "red_below"):
+            v = thr.get(key)
+            if v is None:
+                continue
+            try:
+                fv = float(v)
+            except (TypeError, ValueError):
+                continue
+            color = "yellow" if "yellow" in key else "red"
+            guide_specs.append((key, fv, color))
+            ymin = min(ymin, fv)
+            ymax = max(ymax, fv)
+        if ymax == ymin:
+            ymax = ymin + 1
+        pad = (ymax - ymin) * 0.08
+        ymin -= pad
+        ymax += pad
+        x_extent = max(xmax - xmin, 1)
+        y_extent = ymax - ymin
+
+        def to_svg(t: float, v: float) -> tuple[float, float]:
+            x = L + (t - xmin) / x_extent * plot_w
+            y = T + (1 - (v - ymin) / y_extent) * plot_h
+            return x, y
+
+        path_pts = [to_svg(t, v) for t, v in points]
+        path_d = " ".join(
+            f"{'M' if i == 0 else 'L'} {x:.2f} {y:.2f}"
+            for i, (x, y) in enumerate(path_pts)
+        )
+        plotted = [
+            {"x": x, "y": y, "value": v, "ts": datetime.fromtimestamp(t, tz=timezone.utc).strftime("%Y-%m-%d %H:%M")}
+            for ((x, y), (t, v)) in zip(path_pts, points)
+        ]
+
+        guides: list[dict] = []
+        for key, val, color in guide_specs:
+            y_svg = T + (1 - (val - ymin) / y_extent) * plot_h
+            guides.append({"label": key, "value": val, "color": color, "y": y_svg})
+
+        out.append({
+            "signal_id": ev.signal_id,
+            "component": ev.component,
+            "status": ev.status,
+            "unit": ev.unit,
+            "current_value": ev.value,
+            "n_points": len(points),
+            "path_d": path_d,
+            "points": plotted,
+            "guides": guides,
+            "ymin": ymin,
+            "ymax": ymax,
+            "ymin_label": f"{ymin_data:g}",
+            "ymax_label": f"{ymax_data:g}",
+            "xmin_label": datetime.fromtimestamp(xmin, tz=timezone.utc).strftime("%m-%d %H:%M"),
+            "xmax_label": datetime.fromtimestamp(xmax, tz=timezone.utc).strftime("%m-%d %H:%M"),
+            "viewbox": f"0 0 {W} {H}",
+            "plot_box": {"L": L, "R": R, "T": T, "B": B, "W": W, "H": H},
+            "y_axis_x": L,
+            "x_axis_y": T + plot_h,
+            "x_axis_x_end": L + plot_w,
+        })
+    out.sort(key=lambda d: (STATUS_RANK.get(d["status"], 0) * -1, d["component"], d["signal_id"]))
+    return out
+
+
 def render_html(
     output_dir: Path,
     evaluations: list[Evaluation],
@@ -364,10 +526,22 @@ def render_html(
 
     any_regressions = [ev for ev in evaluations if ev.regressions]
 
+    trends = build_trend_data(evaluations)
+    trends_by_component: dict[str, list[dict]] = {}
+    for t in trends:
+        trends_by_component.setdefault(t["component"], []).append(t)
+    trend_skipped = sorted(
+        ev.signal_id for ev in evaluations
+        if ev.signal_id not in {t["signal_id"] for t in trends}
+        and not isinstance(ev.value, dict)
+    )
+
+    snapshot_time = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
     # Index page
     index_html = env.get_template("index.html.j2").render(
         snapshot_date=snapshot_date,
-        snapshot_time=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        snapshot_time=snapshot_time,
         overall=overall,
         by_component=by_component,
         regressions=any_regressions,
@@ -383,6 +557,7 @@ def render_html(
             component=component,
             evaluations=evs,
             snapshot_date=snapshot_date,
+            regressions_count=len(any_regressions),
             css=css,
         )
         (output_dir / "components" / f"{component}.html").write_text(comp_html)
@@ -394,6 +569,18 @@ def render_html(
         css=css,
     )
     (output_dir / "regressions.html").write_text(reg_html)
+
+    # Trends page
+    trends_html = env.get_template("trends.html.j2").render(
+        snapshot_date=snapshot_date,
+        snapshot_time=snapshot_time,
+        overall=overall,
+        trends_by_component=trends_by_component,
+        trend_skipped=trend_skipped,
+        regressions_count=len(any_regressions),
+        css=css,
+    )
+    (output_dir / "trends.html").write_text(trends_html)
 
 
 def update_latest_symlink(output_root: Path, snapshot_date: str) -> None:

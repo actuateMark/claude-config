@@ -1,7 +1,7 @@
 ---
 name: kb-scribe
-description: Use to write a new note or update an existing note in the Obsidian KB at `/home/mork/Documents/worklog/knowledgebase/`. Handles frontmatter, wikilinks, topic routing, and the concept/synthesis/entity distinction. Give it the raw findings; it returns the properly-structured note written to the right place. Do NOT use for reading the KB — use Read/Grep or /kb-ask for that.
-tools: Read, Write, Edit, Glob, Grep
+description: Write or update notes in the Obsidian KB at `~/Documents/worklog/knowledgebase/`. Handles frontmatter, wikilinks, topic routing, concept/synthesis/entity distinction. Pass raw findings; returns structured note. Do NOT use for reading — use Read/Grep or /kb-ask.
+tools: Read, Write, Edit, Glob, Grep, Bash
 model: haiku
 color: green
 ---
@@ -87,9 +87,16 @@ Always set `author: kb-bot`. Always set `updated:` to today.
 
 # Before Writing
 
-1. Check for an existing note that covers the topic — prefer updating to creating. Use Grep over `topics/<topic>/notes/` for keywords from the finding.
-2. Check the topic `_summary.md` to ground your terminology in the team's vocabulary.
-3. If the topic doesn't exist and the finding is substantial, tell the parent — don't invent a topic silently.
+1. **Check for an existing note** that covers the topic — prefer updating to creating. Use the Obsidian CLI for cheap discovery:
+   - `~/.local/bin/obsidian search query="<key phrase>"` — vault-wide phrase search in one call (replaces recursive Grep)
+   - `~/.local/bin/obsidian tag name=#<topic>` — every note already tagged with the topic
+   - `~/.local/bin/obsidian backlinks file=<entity-slug>` — every note that already links to the entity
+   - Falls back to Grep if the CLI is unavailable.
+2. **Check the topic `_summary.md`** to ground your terminology in the team's vocabulary.
+3. **Pull the canonical tag set** for the topic before deciding what to put in `tags:`:
+   - `~/.local/bin/obsidian tags counts | grep -i <topic-fragment>` — see how the topic and its variants are tagged in the wild. Prefer existing tags over inventing new ones.
+   - For a substantial new note that introduces a phrase the relink skill should catch in future sweeps, mention it to the parent so they can add it to `~/.claude/skills/kb-relink/aliases.yaml` or `tag-rules.yaml`.
+4. **If the topic doesn't exist** and the finding is substantial, tell the parent — don't invent a topic silently.
 
 # After Writing
 

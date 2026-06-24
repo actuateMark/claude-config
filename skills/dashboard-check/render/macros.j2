@@ -195,6 +195,86 @@
 </details>
 {%- endmacro %}
 
+{# Site-wide nav linking to the other surfaces on this box. Mirrors the
+   `<nav class=statusnav>` block on the / status page (see gen-status-page.sh).
+   Uses absolute paths because each surface (/, /dashboard/, /app/, /logs/, …)
+   is a separate Caddy handle. `active` is one of: home, kb, ask, today, jira,
+   repos, metrics, ops, admin — for dashboard pages it's always "ops". #}
+{% macro site_nav(active="ops") -%}
+<nav class="site-nav" aria-label="Box navigation">
+  <span class="site-nav-label">navigate:</span>
+  <a class="site-nav-link {% if active == 'home' %}site-nav-active{% endif %}" href="/app/">home</a>
+  <span class="site-nav-sep">·</span>
+  <a class="site-nav-link {% if active == 'kb' %}site-nav-active{% endif %}" href="/app/kb/">kb</a>
+  <span class="site-nav-sep">·</span>
+  <a class="site-nav-link {% if active == 'ask' %}site-nav-active{% endif %}" href="/app/kb/query">ask</a>
+  <span class="site-nav-sep">·</span>
+  <a class="site-nav-link {% if active == 'today' %}site-nav-active{% endif %}" href="/app/today/">today</a>
+  <span class="site-nav-sep">·</span>
+  <a class="site-nav-link {% if active == 'jira' %}site-nav-active{% endif %}" href="/app/jira/">jira</a>
+  <span class="site-nav-sep">·</span>
+  <a class="site-nav-link {% if active == 'repos' %}site-nav-active{% endif %}" href="/app/repos/">repos</a>
+  <span class="site-nav-sep">·</span>
+  <a class="site-nav-link {% if active == 'metrics' %}site-nav-active{% endif %}" href="/app/metrics/">metrics</a>
+  <span class="site-nav-sep">·</span>
+  <a class="site-nav-link {% if active == 'ops' %}site-nav-active{% endif %}" href="/dashboard/">ops</a>
+  <span class="site-nav-sep">·</span>
+  <a class="site-nav-link {% if active == 'admin' %}site-nav-active{% endif %}" href="/app/admin/">admin</a>
+  <span class="site-nav-sep">·</span>
+  <a class="site-nav-link" href="/logs/">logs</a>
+  <span class="site-nav-sep">·</span>
+  <a class="site-nav-link" href="/">status</a>
+</nav>
+{%- endmacro %}
+
+{# Top-of-page tab nav. `active` is one of: overview, trends, regressions, component.
+   `prefix` is "" for top-level pages and "../" for /components/<name>.html. #}
+{% macro nav_tabs(active, prefix="", regressions_count=0) -%}
+<nav class="page-tabs" aria-label="Dashboard pages">
+  <a class="page-tab {% if active == 'overview' %}page-tab-active{% endif %}" href="{{ prefix }}index.html">Overview</a>
+  <a class="page-tab {% if active == 'trends' %}page-tab-active{% endif %}" href="{{ prefix }}trends.html">Trends</a>
+  <a class="page-tab {% if active == 'regressions' %}page-tab-active{% endif %}" href="{{ prefix }}regressions.html">Regressions{% if regressions_count %} <span class="page-tab-count">({{ regressions_count }})</span>{% endif %}</a>
+</nav>
+{%- endmacro %}
+
+{# Trend chart — bigger inline SVG line chart for the Trends section.
+   Driven by pre-computed dict from build_trend_data() in render.py. #}
+{% macro trend_chart(t) -%}
+<article class="trend-card trend-{{ t.status }}" id="trend-{{ t.signal_id }}">
+  <header class="trend-head">
+    <span class="trend-status">{{ status_badge(t.status) }}</span>
+    <a class="trend-name" href="components/{{ t.component }}.html#{{ t.signal_id }}"><code>{{ t.signal_id }}</code></a>
+    <span class="trend-current">{% if t.current_value is not none %}{{ t.current_value }}{% if t.unit %} {{ t.unit }}{% endif %}{% else %}—{% endif %}</span>
+  </header>
+  <svg class="trend-svg" viewBox="{{ t.viewbox }}" preserveAspectRatio="none" role="img" aria-label="trend for {{ t.signal_id }}">
+    {# Plot frame: y-axis + x-axis baseline #}
+    <line class="trend-axis" x1="{{ t.y_axis_x }}" y1="{{ t.plot_box.T }}" x2="{{ t.y_axis_x }}" y2="{{ t.x_axis_y }}" />
+    <line class="trend-axis" x1="{{ t.y_axis_x }}" y1="{{ t.x_axis_y }}" x2="{{ t.x_axis_x_end }}" y2="{{ t.x_axis_y }}" />
+    {# Y-axis labels: min and max of observed data #}
+    <text class="trend-y-label" x="{{ t.y_axis_x - 4 }}" y="{{ t.plot_box.T + 4 }}" text-anchor="end">{{ t.ymax_label }}</text>
+    <text class="trend-y-label" x="{{ t.y_axis_x - 4 }}" y="{{ t.x_axis_y }}" text-anchor="end">{{ t.ymin_label }}</text>
+    {# Threshold guide-lines #}
+    {% for g in t.guides %}
+    <line class="trend-guide trend-guide-{{ g.color }}" x1="{{ t.y_axis_x }}" y1="{{ '%.2f' % g.y }}" x2="{{ t.x_axis_x_end }}" y2="{{ '%.2f' % g.y }}" />
+    <text class="trend-guide-label trend-guide-{{ g.color }}" x="{{ t.x_axis_x_end - 2 }}" y="{{ '%.2f' % (g.y - 2) }}" text-anchor="end">{{ g.label }} {{ g.value }}</text>
+    {% endfor %}
+    {# Data line #}
+    <path class="trend-line" d="{{ t.path_d }}" />
+    {# Point markers #}
+    {% for p in t.points %}
+    <circle class="trend-point" cx="{{ '%.2f' % p.x }}" cy="{{ '%.2f' % p.y }}" r="2"><title>{{ p.ts }}: {{ p.value }}</title></circle>
+    {% endfor %}
+    {# X-axis range labels #}
+    <text class="trend-x-label" x="{{ t.y_axis_x }}" y="{{ t.plot_box.H - 6 }}" text-anchor="start">{{ t.xmin_label }}</text>
+    <text class="trend-x-label" x="{{ t.x_axis_x_end }}" y="{{ t.plot_box.H - 6 }}" text-anchor="end">{{ t.xmax_label }}</text>
+  </svg>
+  <footer class="trend-foot">
+    <span>{{ t.n_points }} pts</span>
+    {% if t.guides %}<span class="trend-foot-sep">·</span><span>thresholds shown as dashed lines</span>{% endif %}
+  </footer>
+</article>
+{%- endmacro %}
+
 {# Header row with column labels — sits at the top of each signal-list block to mimic table headers #}
 {% macro signal_list_header() -%}
 <div class="signal-list-header">

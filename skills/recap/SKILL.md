@@ -1,6 +1,6 @@
 ---
 name: recap
-description: Snapshot current state across today's tracked work — Today's Scope progress, active session claims, this session's TaskList, items closed today. Read-only summary with no side effects. Trigger on "/recap", "recap", "status", "where are we", "progress today", "catch me up", "status update".
+description: Snapshot current state — Today's Scope progress, active claims, this session's tasks, items closed today. Read-only. Trigger: '/recap', 'status', 'where are we'.
 user-invocable: true
 allowed-tools:
   - Read

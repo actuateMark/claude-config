@@ -1,6 +1,6 @@
 ---
 name: source-reader
-description: Use to read individual external sources (URLs or PDFs in _research-inbox/) and return structured source-note proposals + concept suggestions + cross-reference proposals. Designed to be spawned in parallel batches (3-5 subagents, 2-3 sources each) so the main context stays clean. Returns proposals only — does not write to KB.
+description: Read individual external sources (URLs or PDFs in `_research-inbox/`) and return structured source-note + concept + cross-ref proposals. Spawn in parallel batches (3-5 subagents × 2-3 sources). Returns proposals only — does not write KB.
 tools: WebFetch, Read, Grep, Glob, Bash
 model: sonnet
 color: blue

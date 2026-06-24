@@ -1,0 +1,197 @@
+# kb-relink curated alias dictionary
+#
+# Maps an anchor slug (the .md filename without extension) to the list of prose
+# phrases that should be linked to it. The skill auto-derives phrases from the
+# slug + title + frontmatter aliases; this file adds the common-noun / branded /
+# alternate-spelling forms the heuristic can't infer.
+#
+# Format:
+#   <anchor-slug>:
+#     - "Phrase 1"
+#     - "Phrase 2"
+#
+# Conventions:
+#   - List phrases LONGEST FIRST so the matcher prefers more specific matches.
+#   - Use exact casing as it appears in prose (PyAV, not pyav, when proper-noun).
+#   - Add plurals/possessives explicitly if you want them matched (e.g., "PyAV's").
+#   - To disambiguate: if a phrase could resolve to two anchors, keep it on only
+#     one side and remove from the other. The skill warns on collisions.
+#
+# Hard-skip phrases (never link these no matter what) live in SKILL.md Step 3,
+# not here.
+
+# ---- video-processing topic ------------------------------------------------
+
+pyav-entity:
+  - "PyAV"
+  - "pyav"
+
+opencv-entity:
+  - "OpenCV"
+  - "opencv"
+  - "cv2.VideoCapture"
+  - "cv2"
+
+ffmpeg-entity:
+  - "ffmpeg"
+  - "FFmpeg"
+  - "FFMPEG"
+
+gstreamer-entity:
+  - "GStreamer"
+  - "gstreamer"
+  - "gst"
+
+imageio-entity:
+  - "imageio"
+  - "ImageIO"
+
+aws-elemental-live-entity:
+  - "AWS Elemental Live"
+  - "Elemental Live"
+
+aws-medialive-entity:
+  - "AWS MediaLive"
+  - "MediaLive"
+
+aws-mediapackage-entity:
+  - "AWS MediaPackage"
+  - "MediaPackage"
+
+aws-mediaconvert-entity:
+  - "AWS MediaConvert"
+  - "MediaConvert"
+
+aws-ivs-entity:
+  - "AWS IVS"
+  - "Amazon IVS"
+
+aws-kvs-entity:
+  - "AWS KVS"
+  - "Amazon KVS"
+  - "Kinesis Video Streams"
+
+aws-rekognition-video-entity:
+  - "AWS Rekognition Video"
+  - "Rekognition Video"
+
+h264-deep-dive:
+  - "H.264"
+  - "H264"
+  - "AVC"
+
+h265-hevc-deep-dive:
+  - "H.265"
+  - "HEVC"
+  - "H265"
+
+rtsp-deep-dive:
+  - "RTSP"
+
+webrtc-deep-dive:
+  - "WebRTC"
+
+rtmp-and-srt:
+  - "RTMP"
+  - "SRT"
+
+hls-and-dash:
+  - "HLS"
+  - "DASH"
+  - "MPEG-DASH"
+
+mpeg-ts-over-udp:
+  - "MPEG-TS"
+  - "MPEG TS"
+
+mjpeg-and-still-image-formats:
+  - "MJPEG"
+  - "Motion JPEG"
+
+nvidia-deepstream:
+  - "DeepStream"
+  - "NVIDIA DeepStream"
+
+# Codec anchors — explicit because heuristic slug-split can collide with
+# synthesis anchors that mention these names. VP8 has no dedicated anchor;
+# av1-vp9-future is the closest umbrella concept.
+av1-vp9-future:
+  - "AV1"
+  - "VP9"
+  - "VP8"
+
+# Hardware-accel anchors — keep generic terms specific
+hardware-accelerated-codecs:
+  - "NVENC"
+  - "NVDEC"
+  - "VideoToolbox"
+  - "QuickSync"
+  - "VAAPI"
+
+# Concept anchors that risk being aliased away by synthesis anchors
+gop-keyframe-fundamentals:
+  - "GOP"
+  - "keyframe interval"
+  - "IDR frame"
+
+# ---- extend below as you find phrases the heuristic misses -----------------
+# Tip: after running /kb-relink, look at the "orphan anchors" list -- any anchor
+# you expected to see additions for but didn't probably needs an alias here.
+#
+# Disambiguation: synthesis anchors (filenames like "kvs-webrtc-as-fleet-frame-plane")
+# are intentionally NOT slug-heuristic-derived to avoid collision with the
+# more-specific entity/concept anchors they reference. Synthesis aliases must be
+# declared explicitly here when needed -- usually they aren't, since synthesis
+# notes are linked-to from peer notes via cross-reference sections, not from
+# inline prose elsewhere.
+
+# ---- integration component entities ----------------------------------------
+# Each integration's canonical entity is at integrations/<name>/notes/entities/
+# <name>-components.md. Prose typically uses the bare integration name without
+# "components", so we add the bare name + branded variants here.
+
+evalink-components:
+  - "Evalink Cloud"
+  - "Evalink"
+
+kvs-components:
+  - "Kinesis Video Streams"
+  - "KVS"
+
+ajax-components:
+  - "Ajax Systems"
+  - "Ajax"
+
+softguard-components:
+  - "Softguard"
+  - "SoftGuard"
+
+sentinel-components:
+  - "Sentinel"
+
+video-insight-components:
+  - "Video Insight"
+  - "VideoInsight"
+
+bold-components:
+  - "Bold"
+
+webhook-components:
+  - "webhook integration"
+
+hikcentral-components:
+  - "HikCentral"
+  - "Hikcentral"
+
+# ---- engineering-process entities ------------------------------------------
+
+automation-overnight-check:
+  - "overnight checks"
+  - "overnight check"
+
+# ---- watchman --------------------------------------------------------------
+# `watchman-repo` already auto-derives "watchman-repo" / "Watchman-repo" via
+# slug heuristic but prose says "Watchman". Add the bare brand.
+
+watchman-repo:
+  - "Watchman"

@@ -6,7 +6,9 @@
 <style>{{ css }}</style>
 </head>
 <body>
-{% from "macros.j2" import status_badge, signal_item, signal_list_header, hero_heatgrid, hero_regressions, hero_summary %}
+{% from "macros.j2" import status_badge, signal_item, signal_list_header, hero_heatgrid, hero_regressions, hero_summary, nav_tabs, site_nav %}
+
+{{ site_nav("ops") }}
 
 <header>
   <h1>Actuate Operational Dashboard</h1>
@@ -16,6 +18,8 @@
     &middot; Overall: {{ status_badge(overall) }}
   </p>
 </header>
+
+{{ nav_tabs("overview", regressions_count=regressions | length) }}
 
 {# Hero carousel — CSS-only card switching via hidden radio buttons. Card 1 is checked by default. #}
 <section class="hero" aria-label="Hero overview">

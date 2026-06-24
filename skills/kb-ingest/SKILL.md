@@ -1,6 +1,6 @@
 ---
 name: kb-ingest
-description: Ingest a source into the personal Obsidian knowledge base. Accepts a URL (Confluence page, Jira ticket, web page) or a topic to research. Creates source notes, updates concept/entity notes, and refreshes the topic summary. Trigger on "kb ingest", "add to kb", "ingest into kb", "research and save", "add to knowledge base".
+description: Ingest a source (URL, Confluence page, Jira ticket, or topic) into the Obsidian KB. Creates source notes, updates concepts/entities, refreshes topic summary. Trigger: '/kb-ingest', 'add to kb'.
 user-invocable: true
 allowed-tools:
   - Bash

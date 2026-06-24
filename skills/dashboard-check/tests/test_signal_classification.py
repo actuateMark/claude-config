@@ -95,6 +95,31 @@ def test_classify_none_value_is_error():
     assert render.classify(signal, None, None) == "error"
 
 
+def test_classify_facet_dict_returns_worst_status():
+    """FACET dict signal: classification walks each value against thresholds and
+    returns the worst status across keys. Pre-fix this returned 'informational'
+    because float({}) raises, so per-repo regressions never surfaced in summary."""
+    signal = {"thresholds": {"yellow_above": 20, "red_above": 100}}
+    # All-green dict
+    assert render.classify(signal, {"vms-connector": 5, "actuate_admin": 12}, None) == "green"
+    # One yellow value bumps to yellow
+    assert render.classify(signal, {"vms-connector": 5, "actuate_admin": 25}, None) == "yellow"
+    # One red dominates yellow + green
+    assert render.classify(signal, {"a": 5, "b": 25, "c": 150}, None) == "red"
+    # Empty dict → informational (no numeric values to classify)
+    assert render.classify(signal, {}, None) == "informational"
+    # Dict of non-numeric values (e.g. pin strings) → informational
+    assert render.classify(signal, {"pkg": "1.2.3"}, None) == "informational"
+
+
+def test_classify_facet_dict_with_below_threshold():
+    """Below-thresholds also work for facet dicts (e.g. activity per region)."""
+    signal = {"thresholds": {"yellow_below": 5, "red_below": 1}}
+    assert render.classify(signal, {"us": 10, "eu": 8}, None) == "green"
+    assert render.classify(signal, {"us": 10, "eu": 3}, None) == "yellow"
+    assert render.classify(signal, {"us": 10, "eu": 0}, None) == "red"
+
+
 def test_new_pattern_facet_rule():
     """FACET signal with a new key today that wasn't prior should trigger new_pattern."""
     signal = {
@@ -340,3 +365,91 @@ def test_replay_2026_04_20_ssl_cert_verify_is_pending():
     assert any("new_pattern" in r for r in regressions)
     assert any("chm-cronjob" in r for r in regressions)
     assert elevated == "red"
+
+
+# --- build_trend_data --------------------------------------------------------
+
+
+def _make_eval(**overrides):
+    """Build a minimal Evaluation with sane defaults for trend tests."""
+    base = dict(
+        signal_id="test_sig",
+        component="test_component",
+        value=50,
+        baseline=42,
+        status="green",
+        unit=None,
+        description="",
+        notes="",
+        regressions=[],
+        thresholds=None,
+        paired_with=None,
+        query=None,
+        kb_link=None,
+        source=None,
+        would_have_caught=None,
+        data_source="live",
+        last_observed_at="2026-05-04T12:00:00Z",
+        history=[],
+        freshness_hours=0.0,
+        prior_value=None,
+    )
+    base.update(overrides)
+    return render.Evaluation(**base)
+
+
+def test_build_trend_data_skips_signals_with_too_few_points(monkeypatch):
+    """Need >=3 numeric points (history + current value); fewer → skipped."""
+    monkeypatch.setattr(render.sink, "read_recent", lambda **kw: [
+        {"signal_id": "test_sig", "value": 10, "timestamp": "2026-05-03T12:00:00Z"},
+        {"signal_id": "test_sig", "value": 20, "timestamp": "2026-05-04T00:00:00Z"},
+    ])
+    ev = _make_eval()  # +1 from current value at last_observed_at = 3 points
+    trends = render.build_trend_data([ev])
+    assert len(trends) == 1
+    assert trends[0]["n_points"] == 3
+    # If current value is non-numeric (e.g. None, dict), only sink rows count → 2 → skipped
+    ev2 = _make_eval(value=None)
+    trends2 = render.build_trend_data([ev2])
+    assert trends2 == []
+
+
+def test_build_trend_data_skips_facet_dict_signals(monkeypatch):
+    """FACET-shaped signals already have a tabular drawer; trend chart skips them."""
+    monkeypatch.setattr(render.sink, "read_recent", lambda **kw: [
+        {"signal_id": "test_sig", "value": 10, "timestamp": "2026-05-03T12:00:00Z"},
+        {"signal_id": "test_sig", "value": 20, "timestamp": "2026-05-03T18:00:00Z"},
+        {"signal_id": "test_sig", "value": 30, "timestamp": "2026-05-04T00:00:00Z"},
+    ])
+    ev = _make_eval(value={"key_a": 5, "key_b": 3})
+    assert render.build_trend_data([ev]) == []
+
+
+def test_build_trend_data_includes_threshold_guides(monkeypatch):
+    """yellow/red threshold values should be emitted as guide lines for the SVG."""
+    monkeypatch.setattr(render.sink, "read_recent", lambda **kw: [
+        {"signal_id": "test_sig", "value": 5, "timestamp": "2026-05-03T00:00:00Z"},
+        {"signal_id": "test_sig", "value": 10, "timestamp": "2026-05-03T12:00:00Z"},
+        {"signal_id": "test_sig", "value": 15, "timestamp": "2026-05-04T00:00:00Z"},
+    ])
+    ev = _make_eval(thresholds={"yellow_above": 100, "red_above": 200})
+    trends = render.build_trend_data([ev])
+    assert len(trends) == 1
+    labels = {g["label"] for g in trends[0]["guides"]}
+    assert labels == {"yellow_above", "red_above"}
+    colors = {g["color"] for g in trends[0]["guides"]}
+    assert colors == {"yellow", "red"}
+
+
+def test_build_trend_data_dedupes_by_timestamp(monkeypatch):
+    """Sink row at the same timestamp as ev.last_observed_at must not be double-counted."""
+    monkeypatch.setattr(render.sink, "read_recent", lambda **kw: [
+        {"signal_id": "test_sig", "value": 10, "timestamp": "2026-05-03T00:00:00Z"},
+        {"signal_id": "test_sig", "value": 20, "timestamp": "2026-05-03T12:00:00Z"},
+        # Duplicate timestamp matching ev.last_observed_at:
+        {"signal_id": "test_sig", "value": 99, "timestamp": "2026-05-04T12:00:00Z"},
+    ])
+    ev = _make_eval(value=50, last_observed_at="2026-05-04T12:00:00Z")
+    trends = render.build_trend_data([ev])
+    # 3 distinct timestamps → 3 points, not 4
+    assert trends[0]["n_points"] == 3

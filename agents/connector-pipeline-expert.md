@@ -1,6 +1,6 @@
 ---
 name: connector-pipeline-expert
-description: Use to answer architecture and implementation questions about the VMS connector pipeline — which filter/observer/sender/puller handles X, where a config field is threaded through, how AIMD/sliding-window/tracking work, cross-library dependencies. Read-only exploration agent, scoped to `/home/mork/work/vms-connector` and `/home/mork/work/actuate-libraries`. Prefer this over exploring those repos from the parent since they're large.
+description: Architecture/implementation Q&A on the VMS connector pipeline (filter/observer/sender/puller, AIMD, sliding-window, config threading, cross-library deps). Read-only, scoped to `vms-connector` + `actuate-libraries`. Prefer over parent exploration of those large repos.
 tools: Read, Grep, Glob
 model: opus
 color: purple

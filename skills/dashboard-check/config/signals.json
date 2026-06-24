@@ -78,6 +78,24 @@
       "enabled": false
     },
     {
+      "id": "onboarder_healthcheck_hotfix_in_effect",
+      "component": "autopatrol_onboarder",
+      "source": "git_local",
+      "repos": [
+        "autopatrol_onboarder"
+      ],
+      "command": "scan autopatrol_onboarder/lambda_function.py: failure-branch of get_healthcheck() must logging.warning() and NOT return",
+      "unit": "facet_count",
+      "description": "Boolean (1/0) check that the 2026-04-23 onboarder healthcheck hotfix is still in effect. The hotfix logs a warning and continues when the AutoPatrol healthcheck fails; reverting it (a `return` in that branch) recreates the silent early-return incident. FACET dict {autopatrol_onboarder: 1|0}. Threshold red_below=1 fires red on revert.",
+      "regression_rules": [],
+      "thresholds": {
+        "red_below": 1
+      },
+      "window_hours": 24,
+      "enabled": true,
+      "would_have_caught": "Revert of the 2026-04-23 healthcheck-warning hotfix \u2014 would page on next cron tick after the offending commit lands locally."
+    },
+    {
       "id": "cleanup_lambda_dlq_depth",
       "component": "autopatrol_cleanup",
       "region": "us-west-2",
@@ -93,7 +111,7 @@
         "red_above": 5
       },
       "window_hours": 0,
-      "enabled": false,
+      "enabled": true,
       "would_have_caught": "Generic SQS consumer failure"
     },
     {
@@ -110,7 +128,7 @@
         "red_above": 10
       },
       "window_hours": 1,
-      "enabled": false
+      "enabled": true
     },
     {
       "id": "cleanup_lambda_would_patch_rate",
@@ -128,7 +146,7 @@
         "red_above": 15
       },
       "window_hours": 1,
-      "enabled": false
+      "enabled": true
     },
     {
       "id": "cleanup_lambda_actual_disable_rate",
@@ -146,7 +164,7 @@
         "red_above": 30
       },
       "window_hours": 1,
-      "enabled": false
+      "enabled": true
     },
     {
       "id": "cleanup_lambda_anomaly_reset_rate",
@@ -164,7 +182,7 @@
         "red_above": 30
       },
       "window_hours": 1,
-      "enabled": false
+      "enabled": true
     },
     {
       "id": "cleanup_lambda_anomaly_repeat_offenders_7d",
@@ -183,6 +201,39 @@
       },
       "window_hours": 168,
       "enabled": false
+    },
+    {
+      "id": "cleanup_lambda_main_queue_depth",
+      "component": "autopatrol_cleanup",
+      "region": "us-west-2",
+      "source": "cw_sqs",
+      "query": "aws sqs get-queue-attributes --queue-url <CLEANUP_MAIN_QUEUE_URL> --attribute-names ApproximateNumberOfMessages",
+      "unit": "messages",
+      "description": "Main-queue depth for the cleanup Lambda's SQS consumer. Healthy = 0..tens during emit bursts. >100 sustained = Lambda lagging behind connector emit rate. Pairs with cleanup_lambda_dlq_depth.",
+      "regression_rules": [],
+      "thresholds": {
+        "yellow_above": 100,
+        "red_above": 500
+      },
+      "window_hours": 0,
+      "enabled": true,
+      "would_have_caught": "Lambda consumer lag / processing slowdown"
+    },
+    {
+      "id": "cleanup_lambda_event_source_mapping_state",
+      "component": "autopatrol_cleanup",
+      "region": "us-west-2",
+      "source": "cw_lambda",
+      "query": "aws lambda list-event-source-mappings --function-name immix-autopatrol-schedule-cleanup --query EventSourceMappings[0].State",
+      "unit": "boolean",
+      "description": "1 if the SQS event-source mapping for the cleanup Lambda is Enabled, 0 otherwise. Step 1 of /autopatrol-cleanup-lambda-check \u2014 if 0, nothing else matters: the consumer is off and queue will back up. Replaces the LLM skill's manual `aws lambda list-event-source-mappings` check.",
+      "regression_rules": [],
+      "thresholds": {
+        "red_below": 1
+      },
+      "window_hours": 0,
+      "enabled": true,
+      "would_have_caught": "Manual or accidental disable of the SQS trigger"
     },
     {
       "id": "cleanup_chm_emit_24h",
@@ -291,7 +342,7 @@
       "source": "nr_log",
       "nrql": "SELECT uniqueCount(container_name) FROM Log WHERE cluster_name='Connector-EKS' AND message='WARNING:(MainThread):No models configured for site, appending dummy model.' AND container_name LIKE '%-autopatrol-%' SINCE 24 hours ago",
       "unit": "count_per_24h",
-      "description": "Distinct AUTOPATROL connector containers logging the dummy-model fallback warning. >0 means an AutoPatrol site has empty `models` in settings.json and is silently running a no-op model. AUTO-566 (config-sync gap) is the underlying fix; this signal makes the misconfiguration discoverable proactively. **Filter `container_name LIKE '%-autopatrol-%'` is critical** — VCH and CHM integration types are not meant to run models, so the warning firing on them is expected/benign noise. Use exact-equality match on the message — fleet-wide `LIKE %...%` queries on message time out at NRDB scope.",
+      "description": "Distinct AUTOPATROL connector containers logging the dummy-model fallback warning. >0 means an AutoPatrol site has empty `models` in settings.json and is silently running a no-op model. AUTO-566 (config-sync gap) is the underlying fix; this signal makes the misconfiguration discoverable proactively. **Filter `container_name LIKE '%-autopatrol-%'` is critical** \u2014 VCH and CHM integration types are not meant to run models, so the warning firing on them is expected/benign noise. Use exact-equality match on the message \u2014 fleet-wide `LIKE %...%` queries on message time out at NRDB scope.",
       "regression_rules": [
         "silent_drop_inverse"
       ],
@@ -310,7 +361,7 @@
       "source": "nr_log",
       "nrql": "SELECT uniqueCount(container_name) FROM Log WHERE cluster_name='Connector-EKS' AND message LIKE '%No patrols to run after all attempts%' SINCE 24 hours ago",
       "unit": "count_per_24h",
-      "description": "Distinct connector containers logging that no patrols were available to run. >0 means a connector pod woke up to find an empty queue — either the schedule is stuck Awaiting in admin, the cleanup Lambda mis-disabled the schedule, or the patrol queue isn't writing. Pairs with onboarder/cleanup health.",
+      "description": "Distinct connector containers logging that no patrols were available to run. >0 means a connector pod woke up to find an empty queue \u2014 either the schedule is stuck Awaiting in admin, the cleanup Lambda mis-disabled the schedule, or the patrol queue isn't writing. Pairs with onboarder/cleanup health.",
       "regression_rules": [
         "silent_drop_inverse"
       ],
@@ -320,7 +371,7 @@
       },
       "window_hours": 24,
       "enabled": true,
-      "would_have_caught": "Misconfigured schedule visibility — added 2026-04-28 alongside dummy-model signal"
+      "would_have_caught": "Misconfigured schedule visibility \u2014 added 2026-04-28 alongside dummy-model signal"
     },
     {
       "id": "nonetype_unpack_top_facet",
@@ -609,35 +660,325 @@
       "enabled": false
     },
     {
-      "id": "aws_daily_spend_delta",
+      "id": "cost_total_daily",
       "component": "cost",
-      "source": "aws_ce",
-      "query": "aws ce get-cost-and-usage --time-period Start=<start>,End=<end> --granularity DAILY --metrics UnblendedCost",
-      "unit": "usd_delta",
-      "description": "Daily total AWS spend delta vs prior day. Catches unexpected cost spikes.",
+      "source": "ce_daily",
+      "query": "aws ce get-cost-and-usage --granularity DAILY --metrics UnblendedCost (group-by SERVICE, cached aggregate)",
+      "unit": "usd_per_day",
+      "description": "Total AWS prod-account daily spend. Baseline calibrated 2026-04-30 from 7d trailing: ~$7,788/day (~$234k/mo, ~$2.8M/yr). Sustained drift >25% = a service-level investigation is overdue; check cost_top_services_daily to see which line moved.",
       "regression_rules": [
         "baseline_drift"
       ],
       "thresholds": {
-        "yellow_above_pct": 15,
-        "red_above_pct": 30
+        "yellow_above": 9750,
+        "red_above": 11700
       },
       "window_hours": 24,
-      "enabled": false
+      "enabled": true,
+      "would_have_caught": "Top-of-funnel drift catcher; would surface anything large enough to move the daily total",
+      "freshness_threshold_hours": 72
     },
     {
-      "id": "aws_top10_service_delta",
+      "id": "cost_top_services_daily",
       "component": "cost",
-      "source": "aws_ce",
-      "query": "aws ce get-cost-and-usage --time-period Start=<7d_ago>,End=<now> --granularity DAILY --metrics UnblendedCost --group-by Type=DIMENSION,Key=SERVICE",
-      "unit": "facet_usd",
-      "description": "Weekly per-service spend delta. Identifies services with abnormal cost growth.",
+      "source": "ce_daily",
+      "query": "aws ce get-cost-and-usage --group-by SERVICE (cached aggregate, top-15)",
+      "unit": "facet_usd_per_day",
+      "description": "Top-15 AWS services by yesterday's spend. FACET dict for sparkline + drift detection per service. Baseline composition 2026-04-30 (7d): EC2 $4663, S3 $1106, DDB $573, EC2-Other $445, ECS $181, RDS $152, VPC $144, AWS Config $129, CloudWatch $93, ELB $71, Glue $51, SQS $44, WAF $32, Lambda $24, ECR $21.",
       "regression_rules": [
         "new_pattern",
         "baseline_drift"
       ],
-      "window_hours": 168,
-      "enabled": false
+      "window_hours": 24,
+      "enabled": true,
+      "would_have_caught": "Service-level cost drift surface. New service appearing in top-15 = unplanned spend; existing service jumping rank = drift.",
+      "freshness_threshold_hours": 72
+    },
+    {
+      "id": "cost_ec2_compute_daily",
+      "component": "cost",
+      "source": "ce_daily",
+      "query": "(cached aggregate, key='Amazon Elastic Compute Cloud - Compute')",
+      "unit": "usd_per_day",
+      "description": "EC2 Compute (BoxUsage) daily. Largest single line item. Baseline 2026-04-30 (7d): $4,663/day. Drift sources: instance-class shift, autoscaling change, missed Savings Plan / RI renewal, new fleet workload.",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_above": 5800,
+        "red_above": 7500
+      },
+      "window_hours": 24,
+      "enabled": true,
+      "freshness_threshold_hours": 72
+    },
+    {
+      "id": "cost_ec2_other_daily",
+      "component": "cost",
+      "source": "ce_daily",
+      "query": "(cached aggregate, key='EC2 - Other')",
+      "unit": "usd_per_day",
+      "description": "EC2-Other (NAT, EBS, ELB legacy classic, data transfer). Baseline 2026-04-30 (7d): $445/day. NAT egress spikes are the usual driver \u2014 correlate with VPC endpoint adoption opportunities when red.",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_above": 700,
+        "red_above": 1200
+      },
+      "window_hours": 24,
+      "enabled": true,
+      "freshness_threshold_hours": 72
+    },
+    {
+      "id": "cost_dynamodb_daily",
+      "component": "cost",
+      "source": "ce_daily",
+      "query": "(cached aggregate, key='Amazon DynamoDB')",
+      "unit": "usd_per_day",
+      "description": "DynamoDB daily. Baseline 2026-04-30 (7d): $573/day. Drift sources: on-demand surge, new table, GSI add, PITR enable.",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_above": 750,
+        "red_above": 1100
+      },
+      "window_hours": 24,
+      "enabled": true,
+      "freshness_threshold_hours": 72
+    },
+    {
+      "id": "cost_ecs_daily",
+      "component": "cost",
+      "source": "ce_daily",
+      "query": "(cached aggregate, key='Amazon Elastic Container Service')",
+      "unit": "usd_per_day",
+      "description": "ECS Fargate daily. Baseline 2026-04-30 (7d): $181/day. Drift sources: task scale-out, larger task sizes, new service deploy.",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_above": 280,
+        "red_above": 500
+      },
+      "window_hours": 24,
+      "enabled": true,
+      "freshness_threshold_hours": 72
+    },
+    {
+      "id": "cost_rds_daily",
+      "component": "cost",
+      "source": "ce_daily",
+      "query": "(cached aggregate, key='Amazon Relational Database Service')",
+      "unit": "usd_per_day",
+      "description": "RDS daily. Baseline 2026-04-30 (7d): $152/day. Drift sources: instance upsize, multi-AZ enable, snapshot retention bump, fresh replica.",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_above": 230,
+        "red_above": 400
+      },
+      "window_hours": 24,
+      "enabled": true,
+      "freshness_threshold_hours": 72
+    },
+    {
+      "id": "cost_vpc_daily",
+      "component": "cost",
+      "source": "ce_daily",
+      "query": "(cached aggregate, key='Amazon Virtual Private Cloud')",
+      "unit": "usd_per_day",
+      "description": "VPC daily (NAT-Gateway-hours, VPC endpoints). Baseline 2026-04-30 (7d): $144/day. Drift = NAT GW added or endpoint coverage shifted.",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_above": 220,
+        "red_above": 350
+      },
+      "window_hours": 24,
+      "enabled": true,
+      "freshness_threshold_hours": 72
+    },
+    {
+      "id": "cost_aws_config_daily",
+      "component": "cost",
+      "source": "ce_daily",
+      "query": "(cached aggregate, key='AWS Config')",
+      "unit": "usd_per_day",
+      "description": "AWS Config recording + rules + delivery channel. Baseline 2026-04-30 (7d): $129/day (~$47k/yr). Surprising line item per /cost-check 2026-04-22 \u2014 surface here so any further drift is caught fast. Drift = rules added, recording scope expanded, more resources, or delivery-channel volume up.",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_above": 200,
+        "red_above": 400
+      },
+      "window_hours": 24,
+      "enabled": true,
+      "freshness_threshold_hours": 72
+    },
+    {
+      "id": "cost_cloudwatch_daily",
+      "component": "cost",
+      "source": "ce_daily",
+      "query": "(cached aggregate, key='AmazonCloudWatch')",
+      "unit": "usd_per_day",
+      "description": "CloudWatch daily (logs ingestion + metrics + alarms). Baseline 2026-04-30 (7d): $93/day. Drift sources: noisy logger added, retention bump, metric explosion (high-cardinality custom metrics).",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_above": 150,
+        "red_above": 250
+      },
+      "window_hours": 24,
+      "enabled": true,
+      "freshness_threshold_hours": 72
+    },
+    {
+      "id": "cost_elb_daily",
+      "component": "cost",
+      "source": "ce_daily",
+      "query": "(cached aggregate, key='Amazon Elastic Load Balancing')",
+      "unit": "usd_per_day",
+      "description": "ELB / ALB / NLB daily. Baseline 2026-04-30 (7d): $71/day. Drift = new LB created or LCU usage spike (high-throughput connection patterns).",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_above": 110,
+        "red_above": 180
+      },
+      "window_hours": 24,
+      "enabled": true,
+      "freshness_threshold_hours": 72
+    },
+    {
+      "id": "cost_glue_daily",
+      "component": "cost",
+      "source": "ce_daily",
+      "query": "(cached aggregate, key='AWS Glue')",
+      "unit": "usd_per_day",
+      "description": "AWS Glue (jobs + crawlers + data catalog). Baseline 2026-04-30 (7d): $51/day. Drift = added job, larger DPU footprint, more crawler scope.",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_above": 100,
+        "red_above": 250
+      },
+      "window_hours": 24,
+      "enabled": true,
+      "freshness_threshold_hours": 72
+    },
+    {
+      "id": "cost_sqs_daily",
+      "component": "cost",
+      "source": "ce_daily",
+      "query": "(cached aggregate, key='Amazon Simple Queue Service')",
+      "unit": "usd_per_day",
+      "description": "SQS request volume daily. Baseline 2026-04-30 (7d): $44/day. Drift = new chatty consumer / producer or polling pattern change.",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_above": 80,
+        "red_above": 150
+      },
+      "window_hours": 24,
+      "enabled": true,
+      "freshness_threshold_hours": 72
+    },
+    {
+      "id": "cost_lambda_daily",
+      "component": "cost",
+      "source": "ce_daily",
+      "query": "(cached aggregate, key='AWS Lambda')",
+      "unit": "usd_per_day",
+      "description": "Lambda daily (invocations + GB-seconds). Baseline 2026-04-30 (7d): $24/day. Drift sources: provisioned-concurrency add, hot loop, large payload retries.",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_above": 60,
+        "red_above": 150
+      },
+      "window_hours": 24,
+      "enabled": true,
+      "freshness_threshold_hours": 72
+    },
+    {
+      "id": "cost_s3_breakdown_daily",
+      "component": "cost",
+      "source": "ce_daily",
+      "query": "aws ce get-cost-and-usage --filter service=S3 --group-by USAGE_TYPE (cached, classified)",
+      "unit": "facet_usd_per_day",
+      "description": "S3 USAGE_TYPE-classified breakdown. FACET dict for sparkline. Baseline 2026-04-30 (7d): tier1_put=$496/day (45%), storage_gb_month=$399/day (36%), tier3_replication=$130/day (12%), tier2_get=$62/day (6%), data_transfer=$18/day (2%). Use this to localize where S3 drift is coming from when cost_s3_daily_total is yellow/red.",
+      "regression_rules": [
+        "new_pattern",
+        "baseline_drift"
+      ],
+      "window_hours": 24,
+      "enabled": true,
+      "freshness_threshold_hours": 72
+    },
+    {
+      "id": "cost_s3_tier3_daily",
+      "component": "cost",
+      "source": "ce_daily",
+      "query": "(cached S3 breakdown, classification=tier3_replication)",
+      "unit": "usd_per_day",
+      "description": "S3 Tier3 (replication / lifecycle) daily. The $44k/yr line surfaced 2026-04-22 by /cost-check \u2014 replication driver investigation tracked at [[2026-04-23_s3-tier3-cost-investigation]]. Baseline 2026-04-30 (7d): $130/day. Threshold tightened so any new replication policy or lifecycle change spikes here first.",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_above": 200,
+        "red_above": 400
+      },
+      "window_hours": 24,
+      "enabled": true,
+      "would_have_caught": "Open Tier3 investigation (mark-todos \u00a75 pre-PoC item) \u2014 would surface any new bucket replication or lifecycle config that moved this number",
+      "freshness_threshold_hours": 72
+    },
+    {
+      "id": "cost_s3_storage_daily",
+      "component": "cost",
+      "source": "ce_daily",
+      "query": "(cached S3 breakdown, classification=storage_gb_month)",
+      "unit": "usd_per_day",
+      "description": "S3 storage GB-month component, daily slice. Baseline 2026-04-30 (7d): $399/day. Slow-changing \u2014 drift here = retention policy change or new high-volume writer. Pairs with cost_s3_tier1_daily to distinguish 'more bytes stored' from 'more PUT requests'.",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_above": 500,
+        "red_above": 700
+      },
+      "window_hours": 24,
+      "enabled": true,
+      "freshness_threshold_hours": 72
+    },
+    {
+      "id": "cost_s3_tier1_daily",
+      "component": "cost",
+      "source": "ce_daily",
+      "query": "(cached S3 breakdown, classification=tier1_put)",
+      "unit": "usd_per_day",
+      "description": "S3 Tier1 (PUT/COPY/POST/LIST request volume) daily. Baseline 2026-04-30 (7d): $496/day \u2014 historically the largest S3 line. Heavy frame-write workloads dominate; drift here = ingest pattern shift. Per-unit cost is tiny so this is ~always the volume-driven line.",
+      "regression_rules": [
+        "baseline_drift"
+      ],
+      "thresholds": {
+        "yellow_above": 700,
+        "red_above": 1000
+      },
+      "window_hours": 24,
+      "enabled": true,
+      "freshness_threshold_hours": 72
     },
     {
       "id": "nr_apm_apdex_inference",
@@ -798,7 +1139,7 @@
       "source": "nr_k8s_deployment_sample",
       "nrql": "SELECT sum(deploymentDesiredReplicas - deploymentAvailableReplicas) FROM K8sDeploymentSample WHERE clusterName='Connector-EKS' SINCE 5 minutes ago",
       "unit": "count",
-      "description": "Sum of (desired - available) replicas across all deployments. >0 means some deployment can't reach its target replica count — image pull failure, crashloop, anti-affinity stuck, capacity. Brief positive during rolling deploys is normal.",
+      "description": "Sum of (desired - available) replicas across all deployments. >0 means some deployment can't reach its target replica count \u2014 image pull failure, crashloop, anti-affinity stuck, capacity. Brief positive during rolling deploys is normal.",
       "regression_rules": [
         "baseline_drift"
       ],
@@ -816,7 +1157,7 @@
       "source": "nr_k8s_container_sample",
       "nrql": "SELECT max(restartCount) - min(restartCount) FROM K8sContainerSample WHERE clusterName='Connector-EKS' SINCE 5 minutes ago",
       "unit": "count_per_5m",
-      "description": "Restart-count delta over a 5-min window. Fan-out cousin of fleet_oomkills_24h — catches crashloop bursts in real time vs. the 24h aggregate. NB: this is a single max-min across the fleet, not a sum; calibrate after observing real distribution. NRDB has no now() function so the original 'count restarts since now()-5m' formulation didn't work.",
+      "description": "Restart-count delta over a 5-min window. Fan-out cousin of fleet_oomkills_24h \u2014 catches crashloop bursts in real time vs. the 24h aggregate. NB: this is a single max-min across the fleet, not a sum; calibrate after observing real distribution. NRDB has no now() function so the original 'count restarts since now()-5m' formulation didn't work.",
       "regression_rules": [
         "baseline_drift"
       ],
@@ -826,7 +1167,7 @@
       },
       "window_hours": 0.083,
       "enabled": false,
-      "would_have_caught": "Real-time crashloop detection (5m granularity vs. fleet_oomkills_24h). DISABLED 2026-04-27 pending NRQL design + threshold calibration; see cookbook §Per-source recipes for derivative-based alternatives."
+      "would_have_caught": "Real-time crashloop detection (5m granularity vs. fleet_oomkills_24h). DISABLED 2026-04-27 pending NRQL design + threshold calibration; see cookbook \u00a7Per-source recipes for derivative-based alternatives."
     },
     {
       "id": "ssl_cert_days_until_expiry",
@@ -840,7 +1181,7 @@
       ],
       "command": "python ssl.create_default_context() + getpeercert() per host; days until cert.notAfter",
       "unit": "facet_days",
-      "description": "Days until each customer-facing HTTPS endpoint's TLS cert expires. FACET dict {host: days_remaining}. Add a host by appending its FQDN to the `hosts` list — the collector iterates and emits one entry per host. Threshold yellow_below=21 (3-week warning), red_below=7 (week-out scramble). Day-1 (2026-04-29): all 4 monitored hosts >100 days. Add more hosts as new endpoints come online (e.g. signal.actuate.ai, customer-specific subdomains). Hosts that fail to connect (DNS / firewall / wrong port) emit null and surface as classification 'error' so you notice the misconfig.",
+      "description": "Days until each customer-facing HTTPS endpoint's TLS cert expires. FACET dict {host: days_remaining}. Add a host by appending its FQDN to the `hosts` list \u2014 the collector iterates and emits one entry per host. Threshold yellow_below=21 (3-week warning), red_below=7 (week-out scramble). Day-1 (2026-04-29): all 4 monitored hosts >100 days. Add more hosts as new endpoints come online (e.g. signal.actuate.ai, customer-specific subdomains). Hosts that fail to connect (DNS / firewall / wrong port) emit null and surface as classification 'error' so you notice the misconfig.",
       "regression_rules": [
         "silent_drop"
       ],
@@ -850,7 +1191,7 @@
       },
       "window_hours": 24,
       "enabled": true,
-      "would_have_caught": "Customer-facing endpoint cert expiry — first time we get to find out before the customer does."
+      "would_have_caught": "Customer-facing endpoint cert expiry \u2014 first time we get to find out before the customer does."
     },
     {
       "id": "minipc_failed_user_units",
@@ -858,7 +1199,7 @@
       "source": "minipc_local",
       "command": "systemctl --user list-units --state=failed --no-legend --no-pager --plain",
       "unit": "facet_count",
-      "description": "Failed user-systemd units on the minipc. Returns FACET dict {unit_name: 1} so detail page lists exactly WHICH units are failing. Standing alarm — any non-empty result is yellow, multiple is red.",
+      "description": "Failed user-systemd units on the minipc. Returns FACET dict {unit_name: 1} so detail page lists exactly WHICH units are failing. Standing alarm \u2014 any non-empty result is yellow, multiple is red.",
       "regression_rules": [
         "new_pattern"
       ],
@@ -876,7 +1217,7 @@
       "source": "minipc_local",
       "command": "sudo -n systemctl list-units --state=failed --no-legend --no-pager --plain",
       "unit": "facet_count",
-      "description": "Failed system-wide units on the minipc (caddy, docker, tailscaled, etc.). Same shape as the user variant. systemd-networkd-wait-online tends to flap on boot — mask it via phase script if it's the only chronic offender.",
+      "description": "Failed system-wide units on the minipc (caddy, docker, tailscaled, etc.). Same shape as the user variant. systemd-networkd-wait-online tends to flap on boot \u2014 mask it via phase script if it's the only chronic offender.",
       "regression_rules": [
         "new_pattern"
       ],
@@ -894,7 +1235,7 @@
       "source": "minipc_local",
       "command": "journalctl --user -u <units> --since 24 hours ago | count Started lines",
       "unit": "count_per_24h",
-      "description": "How many times the minipc's tracked timers fired in the last 24h. Sum across minipc-app, rebuild-blog, rebuild-quartz, run-dashboard-check, collect-repos. Normal: ~336 (every 5 min × 5 timers ÷ 30s grace). Drops indicate timer wedge or daemon-reload not picking up. Initial threshold conservative; recalibrate after 7d.",
+      "description": "How many times the minipc's tracked timers fired in the last 24h. Sum across minipc-app, rebuild-blog, rebuild-quartz, run-dashboard-check, collect-repos. Normal: ~336 (every 5 min \u00d7 5 timers \u00f7 30s grace). Drops indicate timer wedge or daemon-reload not picking up. Initial threshold conservative; recalibrate after 7d.",
       "regression_rules": [
         "silent_drop"
       ],
@@ -910,29 +1251,32 @@
       "id": "repo_todo_fixme_count",
       "component": "code-health",
       "source": "git_local",
-      "repos": ["all"],
+      "repos": [
+        "all"
+      ],
       "command": "rg --count-matches '\\b(TODO|FIXME)\\b' ~/work/<repo>/",
       "unit": "facet_count",
-      "description": "TODO + FIXME occurrences per tracked repo (working tree, .gitignore-respected). Phase 2 baseline metric — tracks accruing-debt hotspots over time. FACET dict {repo_name: count}. Initial thresholds conservative against the largest repos (vms-connector, actuate-libraries); recalibrate after 7d when sparkline trend is visible.",
+      "description": "TODO + FIXME occurrences per tracked repo (working tree, .gitignore-respected). Phase 2 baseline metric \u2014 tracks accruing-debt hotspots over time. FACET dict {repo_name: count}. Initial thresholds conservative against the largest repos (vms-connector, actuate-libraries); recalibrate after 7d when sparkline trend is visible.",
       "regression_rules": [
         "baseline_drift"
       ],
       "thresholds": {
-        "yellow_above": 500,
-        "red_above": 1500
+        "yellow_above": 25
       },
       "window_hours": 24,
       "enabled": true,
-      "would_have_caught": "Phase 2 first git_local signal — anchors the source class. No prior incident; trend-anchored."
+      "would_have_caught": "Phase 2 first git_local signal \u2014 anchors the source class. No prior incident; trend-anchored."
     },
     {
       "id": "repo_actuate_frames_pin",
       "component": "code-health",
       "source": "git_local",
-      "repos": ["all"],
+      "repos": [
+        "all"
+      ],
       "command": "parse pyproject.toml + requirements.txt for actuate-frames pin spec",
       "unit": "facet_version",
-      "description": "Per-repo pin spec for `actuate-frames`. FACET dict {repo_name: pin_spec} — only repos that actually pin the package show up. Drift detector: when this dict has more than one distinct value, repos are pinning different versions. Workspace declarations skipped. Informational by design — version strings can't classify; the `new_pattern` regression rule will flag when a new repo starts pinning or a version moves.",
+      "description": "Per-repo pin spec for `actuate-frames`. FACET dict {repo_name: pin_spec} \u2014 only repos that actually pin the package show up. Drift detector: when this dict has more than one distinct value, repos are pinning different versions. Workspace declarations skipped. Informational by design \u2014 version strings can't classify; the `new_pattern` regression rule will flag when a new repo starts pinning or a version moves.",
       "regression_rules": [
         "new_pattern"
       ],
@@ -944,46 +1288,51 @@
       "id": "repo_actuate_filters_pin",
       "component": "code-health",
       "source": "git_local",
-      "repos": ["all"],
+      "repos": [
+        "all"
+      ],
       "command": "parse pyproject.toml + requirements.txt for actuate-filters pin spec",
       "unit": "facet_version",
-      "description": "Per-repo pin spec for `actuate-filters`. Same shape as repo_actuate_frames_pin. As of seed-day 2026-04-28 there's already drift: vms-connector pins `==2.0.4` while actuate_admin pins `~=2.0.0` — useful first datapoint for the signal's value.",
+      "description": "Per-repo pin spec for `actuate-filters`. Same shape as repo_actuate_frames_pin. As of seed-day 2026-04-28 there's already drift: vms-connector pins `==2.0.4` while actuate_admin pins `~=2.0.0` \u2014 useful first datapoint for the signal's value.",
       "regression_rules": [
         "new_pattern"
       ],
       "window_hours": 24,
       "enabled": true,
-      "would_have_caught": "vms-connector / actuate_admin diverging on actuate-filters — caught at the moment a downstream consumer bumps without coordinating."
+      "would_have_caught": "vms-connector / actuate_admin diverging on actuate-filters \u2014 caught at the moment a downstream consumer bumps without coordinating."
     },
     {
       "id": "repo_actuate_pullers_pin",
       "component": "code-health",
       "source": "git_local",
-      "repos": ["all"],
+      "repos": [
+        "all"
+      ],
       "command": "parse pyproject.toml + requirements.txt for actuate-pullers pin spec",
       "unit": "facet_version",
-      "description": "Per-repo pin spec for `actuate-pullers`. Same shape as repo_actuate_frames_pin. As of seed-day 2026-04-28 only vms-connector pins it — kept enabled so future consumers (e.g. autopatrol-server, actuate-inference-api) appear automatically when they adopt.",
+      "description": "Per-repo pin spec for `actuate-pullers`. Same shape as repo_actuate_frames_pin. As of seed-day 2026-04-28 only vms-connector pins it \u2014 kept enabled so future consumers (e.g. autopatrol-server, actuate-inference-api) appear automatically when they adopt.",
       "regression_rules": [
         "new_pattern"
       ],
       "window_hours": 24,
       "enabled": true,
-      "would_have_caught": "Adoption-tracking — a new repo pinning actuate-pullers shows up via the `new_pattern` rule."
+      "would_have_caught": "Adoption-tracking \u2014 a new repo pinning actuate-pullers shows up via the `new_pattern` rule."
     },
     {
       "id": "repo_radon_cc_hotspots",
       "component": "code-health",
       "source": "git_local",
-      "repos": ["all"],
+      "repos": [
+        "all"
+      ],
       "command": "radon cc <repo> -n C -s --no-assert --json (grade C+, CCN >= 11)",
       "unit": "facet_count",
-      "description": "Cyclomatic-complexity hotspots (grade C and worse, CCN >= 11) per repo. Tracks the count of functions/methods that need refactoring attention. FACET dict {repo_name: count}. Initial baseline 2026-04-29: actuate-libraries=165, actuate_admin=119, vms-connector=92, autopatrol-server=37; smaller repos in single digits. Thresholds anchored to those baselines — recalibrate after 7d.",
+      "description": "Cyclomatic-complexity hotspots (grade C and worse, CCN >= 11) per repo. Tracks the count of functions/methods that need refactoring attention. FACET dict {repo_name: count}. Initial baseline 2026-04-29: actuate-libraries=165, actuate_admin=119, vms-connector=92, autopatrol-server=37; smaller repos in single digits. Thresholds anchored to those baselines \u2014 recalibrate after 7d.",
       "regression_rules": [
         "baseline_drift"
       ],
       "thresholds": {
-        "yellow_above": 200,
-        "red_above": 400
+        "yellow_above": 80
       },
       "window_hours": 24,
       "enabled": true,
@@ -993,16 +1342,17 @@
       "id": "repo_ruff_unused_imports",
       "component": "code-health",
       "source": "git_local",
-      "repos": ["all"],
+      "repos": [
+        "all"
+      ],
       "command": "ruff check <repo> --select F401 --output-format json --no-cache --exit-zero",
       "unit": "facet_count",
-      "description": "Count of F401 (unused import) violations per repo. Captures dead imports left behind after refactors — usually a 1-line fix per finding. FACET dict {repo_name: count}. Day-1 baselines (2026-04-29): actuate_admin=265, actuate-libraries=172, vms-connector=110, autopatrol-server=33, connector_deployer=5, autopatrol_onboarder=5, actuate-inference-api=0. Thresholds set so admin's existing debt is yellow (visible) without going straight to red.",
+      "description": "Count of F401 (unused import) violations per repo. Captures dead imports left behind after refactors \u2014 usually a 1-line fix per finding. FACET dict {repo_name: count}. Day-1 baselines (2026-04-29): actuate_admin=265, actuate-libraries=172, vms-connector=110, autopatrol-server=33, connector_deployer=5, autopatrol_onboarder=5, actuate-inference-api=0. Thresholds set so admin's existing debt is yellow (visible) without going straight to red.",
       "regression_rules": [
         "baseline_drift"
       ],
       "thresholds": {
-        "yellow_above": 200,
-        "red_above": 500
+        "yellow_above": 85
       },
       "window_hours": 24,
       "enabled": true,
@@ -1012,45 +1362,50 @@
       "id": "repo_stale_branches_count",
       "component": "code-health",
       "source": "git_local",
-      "repos": ["all"],
+      "repos": [
+        "all"
+      ],
       "command": "git for-each-ref refs/remotes/origin/ --format='... %(committerdate:unix)' | count refs older than 60d",
       "unit": "facet_count",
-      "description": "Per-repo count of remote branches whose last commit is older than 60 days. Pure local git, no API call. Captures branch-debt — abandoned features, codex/cursor automation rot, etc. Day-1 example: queue_consumer has 68 stale branches against 77 total (codex/cursor automation residue). FACET dict {repo_name: count}.",
+      "description": "Per-repo count of remote branches whose last commit is older than 60 days. Pure local git, no API call. Captures branch-debt \u2014 abandoned features, codex/cursor automation rot, etc. Day-1 example: queue_consumer has 68 stale branches against 77 total (codex/cursor automation residue). FACET dict {repo_name: count}.",
       "regression_rules": [
         "baseline_drift"
       ],
       "thresholds": {
-        "yellow_above": 30,
-        "red_above": 80
+        "yellow_above": 65
       },
       "window_hours": 24,
       "enabled": true,
-      "would_have_caught": "Branch-bloat that would otherwise stay invisible — only the active branches show on /app/repos/."
+      "would_have_caught": "Branch-bloat that would otherwise stay invisible \u2014 only the active branches show on /app/repos/."
     },
     {
       "id": "repo_ci_failure_rate_pct",
       "component": "code-health",
       "source": "git_local",
-      "repos": ["all"],
+      "repos": [
+        "all"
+      ],
       "command": "gh run list --limit 50 --json conclusion -R <slug>; pct fail/(fail+ok)",
       "unit": "facet_pct",
-      "description": "Percentage of recent CI workflow runs that ended in failure (last 50 runs). Counts conclusion in {failure, timed_out, startup_failure} as fail; counts {success} as ok. Skipped/cancelled/in-progress are excluded from the denominator. Day-1 distribution (2026-04-29): most repos 0-15%, actuate_ailink the obvious outlier at 38% — broken pipeline. Threshold yellow=10 catches chronic mid-tier debt; red=25 flags actively broken CI. Returns None for repos with no CI runs (drops from FACET).",
+      "description": "Percentage of recent CI workflow runs that ended in failure (last 50 runs). Counts conclusion in {failure, timed_out, startup_failure} as fail; counts {success} as ok. Skipped/cancelled/in-progress are excluded from the denominator. Day-1 distribution (2026-04-29): most repos 0-15%, actuate_ailink the obvious outlier at 38% \u2014 broken pipeline. Threshold yellow=10 catches chronic mid-tier debt; red=25 flags actively broken CI. Returns None for repos with no CI runs (drops from FACET).",
       "regression_rules": [
         "baseline_drift"
       ],
       "thresholds": {
-        "yellow_above": 10,
-        "red_above": 25
+        "yellow_above": 15,
+        "red_above": 30
       },
       "window_hours": 24,
       "enabled": true,
-      "would_have_caught": "Sustained CI flake or broken pipeline — would have caught actuate_ailink's 38% rate immediately."
+      "would_have_caught": "Sustained CI flake or broken pipeline \u2014 would have caught actuate_ailink's 38% rate immediately."
     },
     {
       "id": "repo_open_prs_p50_age_days",
       "component": "code-health",
       "source": "git_local",
-      "repos": ["all"],
+      "repos": [
+        "all"
+      ],
       "command": "gh pr list --state open --limit 50 --json createdAt -R <slug>; median age in days",
       "unit": "facet_days",
       "description": "Median age across each repo's currently-open PRs. Pairs with `repo_mtm_days_p50` (merged latency) for a flow picture: high MTM + high open-PR-age = review bottleneck; high MTM + low open-PR-age = recent spike. Repos with zero open PRs drop from the FACET dict (uninteresting / clean). 1 gh API call per repo per collect (16/h, well under rate limit).",
@@ -1058,8 +1413,8 @@
         "baseline_drift"
       ],
       "thresholds": {
-        "yellow_above": 7,
-        "red_above": 21
+        "yellow_above": 15,
+        "red_above": 60
       },
       "window_hours": 24,
       "enabled": true,
@@ -1069,7 +1424,9 @@
       "id": "repo_mtm_days_p50",
       "component": "code-health",
       "source": "git_local",
-      "repos": ["all"],
+      "repos": [
+        "all"
+      ],
       "command": "gh pr list --state merged --limit 50 --json mergedAt,createdAt -R <slug>; median delta in days",
       "unit": "facet_days",
       "description": "Median time-to-merge across the last 50 merged PRs per repo, in days. Resolves the GitHub slug from each repo's `git config remote.origin.url`. FACET dict {repo_name: float days}. Day-1 baseline (2026-04-29): vms-connector p50 = 0.41 days (~10h). Slow-down indicator: if a team is hitting review or CI-flake bottlenecks, the median creeps up. Fast-down indicator: a flurry of stage-bot autobumps drops the median; that's healthy noise. 1 gh API call per repo per collect (7/h, well under 5000/h limit).",
@@ -1077,31 +1434,32 @@
         "baseline_drift"
       ],
       "thresholds": {
-        "yellow_above": 5,
-        "red_above": 14
+        "yellow_above": 1,
+        "red_above": 3
       },
       "window_hours": 24,
       "enabled": true,
-      "would_have_caught": "Sustained CI flake or review-bottleneck regression — visible as p50 climbing over 7d."
+      "would_have_caught": "Sustained CI flake or review-bottleneck regression \u2014 visible as p50 climbing over 7d."
     },
     {
       "id": "repo_vulture_dead_code",
       "component": "code-health",
       "source": "git_local",
-      "repos": ["all"],
+      "repos": [
+        "all"
+      ],
       "command": "vulture <repo> --min-confidence 80 (count = lines of stdout findings)",
       "unit": "facet_count",
-      "description": "Likely-unused functions, classes, vars per repo at >=80% vulture confidence. The default 60% bucket is dominated by Django framework FPs (Meta classes, migrations, apps.py, model field declarations, enum members) — see [[2026-04-29_minipc-api-surface]] / collect.py for the FP-cut analysis. Bumping to 80% drops actuate_admin from 3308 to 41 (98% noise reduction) while preserving rank order across all 16 repos. Day-1 baselines (2026-04-29 conf80): connector_deployer=45, actuate-libraries=45, actuate_admin=41, vms-connector=34, actuate-watchman=22, queue_consumer=11, actuate_ailink=8, autopatrol-server=8, autopatrol_onboarder=6, actuate_monitoring_api=6, ds-terraform-eks-v2=3, others=0-2. Thresholds set at ~2x current top-of-set so a real refactor regression flags but normal scale doesn't.",
+      "description": "Likely-unused functions, classes, vars per repo at >=80% vulture confidence. The default 60% bucket is dominated by Django framework FPs (Meta classes, migrations, apps.py, model field declarations, enum members) \u2014 see [[2026-04-29_minipc-api-surface]] / collect.py for the FP-cut analysis. Bumping to 80% drops actuate_admin from 3308 to 41 (98% noise reduction) while preserving rank order across all 16 repos. Day-1 baselines (2026-04-29 conf80): connector_deployer=45, actuate-libraries=45, actuate_admin=41, vms-connector=34, actuate-watchman=22, queue_consumer=11, actuate_ailink=8, autopatrol-server=8, autopatrol_onboarder=6, actuate_monitoring_api=6, ds-terraform-eks-v2=3, others=0-2. Thresholds set at ~2x current top-of-set so a real refactor regression flags but normal scale doesn't.",
       "regression_rules": [
         "baseline_drift"
       ],
       "thresholds": {
-        "yellow_above": 100,
-        "red_above": 250
+        "yellow_above": 20
       },
       "window_hours": 24,
       "enabled": true,
-      "would_have_caught": "Dead-code accrual after a refactor — flagged via baseline_drift on next collect."
+      "would_have_caught": "Dead-code accrual after a refactor \u2014 flagged via baseline_drift on next collect."
     },
     {
       "id": "cost_s3_daily_total",
@@ -1109,12 +1467,12 @@
       "source": "ce_daily",
       "query": "aws ce get-cost-and-usage --granularity DAILY --metrics UnblendedCost --filter service=S3",
       "unit": "usd_per_day",
-      "description": "Total S3 daily spend across the prod account. Baseline ~$1100-1400/day (~$33-42k/mo). Sustained jumps >30% indicate new lifecycle rule gone wrong, sudden replication, or retention change.",
+      "description": "Total S3 daily spend across the prod account. Baseline calibrated 2026-04-30 from 7d trailing: ~$1106/day avg (~$33k/mo). Sustained jumps >30% indicate new lifecycle rule gone wrong, sudden replication, or retention change. See cost_s3_breakdown_daily for the Tier1/2/3/Storage decomposition.",
       "regression_rules": [
         "baseline_drift"
       ],
       "thresholds": {
-        "yellow_above": 1800,
+        "yellow_above": 1500,
         "red_above": 2500
       },
       "window_hours": 24,
@@ -1231,7 +1589,7 @@
       "source": "nr_log",
       "nrql": "SELECT count(*) FROM Log WHERE cluster_name='Connector-EKS' AND (message LIKE '%AccessDeniedException%' OR message LIKE '%is not authorized to perform%' OR message LIKE '%not authorized to perform%') FACET container_name SINCE 12 hours ago LIMIT 10",
       "unit": "facet_count",
-      "description": "Cluster-wide IAM AccessDenied detector. Counts AccessDeniedException + 'not authorized to perform' message patterns across all Connector-EKS containers, faceted by container. IAM denials are NEVER a normal steady state — any non-zero count means a service is missing a permission grant (new GSI, new resource, role drift). Caught the 2026-04-29 autopatrol-microservice-role MotionFrame/index/run_timestamp gap retroactively; a yellow_above=1 threshold means the next instance flags within 12h instead of waiting for a manual overnight check.",
+      "description": "Cluster-wide IAM AccessDenied detector. Counts AccessDeniedException + 'not authorized to perform' message patterns across all Connector-EKS containers, faceted by container. IAM denials are NEVER a normal steady state \u2014 any non-zero count means a service is missing a permission grant (new GSI, new resource, role drift). Caught the 2026-04-29 autopatrol-microservice-role MotionFrame/index/run_timestamp gap retroactively; a yellow_above=1 threshold means the next instance flags within 12h instead of waiting for a manual overnight check.",
       "thresholds": {
         "yellow_above": 1,
         "red_above": 10
@@ -1243,6 +1601,311 @@
       "window_hours": 12,
       "enabled": true,
       "would_have_caught": "2026-04-29 autopatrol-microservice-role MotionFrame GSI denial (~27 hits in 12h before fix; would have flagged on first hit)"
+    },
+    {
+      "id": "vch_billing_emit_6h",
+      "component": "vms-connector",
+      "source": "nr_log",
+      "nrql": "SELECT count(*) FROM Log WHERE cluster_name='Connector-EKS' AND container_name NOT LIKE 'staging-%' AND message LIKE '%site_product_ended%' AND container_name LIKE '%vch%' SINCE 6 hours ago",
+      "unit": "count_per_6h",
+      "description": "VCH billing events (site_product_ended) emitted in 6h. Each VCH cronjob run emits one event per camera healthchecked; ~870/6h Saturday peak, ~250/6h Sunday low (2026-05-03). PR #1667 (2026-05-02) fixed the SIGTERM-loss regression that silently dropped all billing on interrupt. 38/38 SIGTERM'd pods verified emitting post-fix vs 0/N pre-fix. silent_drop_inverse against 7d baseline is primary detector once history accumulates; absolute thresholds below are near-zero floors.",
+      "regression_rules": [
+        "silent_drop_inverse"
+      ],
+      "critical": true,
+      "thresholds": {
+        "yellow_below": 50,
+        "red_below": 10
+      },
+      "window_hours": 6,
+      "enabled": true,
+      "would_have_caught": "Pre-2026-05-02 silent SIGTERM-induced VCH billing-event loss (issue #1666)"
+    },
+    {
+      "id": "chm_billing_emit_6h",
+      "component": "vms-connector",
+      "source": "nr_log",
+      "nrql": "SELECT count(*) FROM Log WHERE cluster_name='Connector-EKS' AND container_name NOT LIKE 'staging-%' AND message LIKE '%site_product_ended%' AND container_name LIKE '%-chm-cronjob%' AND container_name NOT LIKE '%vch%' AND container_name NOT LIKE '%autopatrol%' SINCE 6 hours ago",
+      "unit": "count_per_6h",
+      "description": "CHM (regular healthcheck) billing events emitted in 6h. Highest-volume integration class \u2014 ~31K/6h baseline (~780 pods, ~40 events/pod = ~40 cameras/run). CHM has no SIGTERM handler today; same lifecycle-invariant bug class would manifest as a flat drop in this signal. silent_drop_inverse catches relative drops; absolute floors below trigger only on near-total emission failure.",
+      "regression_rules": [
+        "silent_drop_inverse"
+      ],
+      "critical": true,
+      "thresholds": {
+        "yellow_below": 8000,
+        "red_below": 2000
+      },
+      "window_hours": 6,
+      "enabled": true,
+      "would_have_caught": "Future CHM billing-emit regressions analogous to the VCH SIGTERM bug (issue #1666)"
+    },
+    {
+      "id": "autopatrol_billing_emit_6h",
+      "component": "vms-connector",
+      "source": "nr_log",
+      "nrql": "SELECT count(*) FROM Log WHERE cluster_name='Connector-EKS' AND container_name NOT LIKE 'staging-%' AND message LIKE '%site_product_ended%' AND container_name LIKE '%autopatrol%' AND container_name NOT LIKE '%vch%' SINCE 6 hours ago",
+      "unit": "count_per_6h",
+      "description": "AutoPatrol (non-VCH) billing events emitted in 6h. Low-volume class \u2014 ~360/6h baseline. PR #1663 (2026-05-01) fixed an emit gap in AutoPatrolSiteManager / PatrolSiteManager that had been silent for ~6 months. silent_drop_inverse against 7d baseline is the primary detector. Absolute red floor of 1 triggers only on full-zero (no AP runs in 6h).",
+      "regression_rules": [
+        "silent_drop_inverse"
+      ],
+      "critical": false,
+      "thresholds": {
+        "yellow_below": 50,
+        "red_below": 1
+      },
+      "window_hours": 6,
+      "enabled": true,
+      "would_have_caught": "PR #1663-class regressions in AutoPatrol/Patrol manager emit paths"
+    },
+    {
+      "id": "analytics_billing_emit_6h",
+      "component": "vms-connector",
+      "source": "nr_log",
+      "nrql": "SELECT count(*) FROM Log WHERE cluster_name='Connector-EKS' AND container_name NOT LIKE 'staging-%' AND message LIKE '%site_product_ended%' AND container_name NOT LIKE '%vch%' AND container_name NOT LIKE '%-chm-cronjob%' AND container_name NOT LIKE '%autopatrol%' SINCE 6 hours ago",
+      "unit": "count_per_6h",
+      "description": "Analytics (long-running site-manager) billing events emitted in 6h. Largest-volume class \u2014 ~140K/6h baseline (~7400 pods including both connector-NNNN and named-client containers like 'five-star-medical-XXXX'). Catches regressions in AnalyticsSiteManager.endrun and ChunkedSiteManager.endrun.",
+      "regression_rules": [
+        "silent_drop_inverse"
+      ],
+      "critical": true,
+      "thresholds": {
+        "yellow_below": 30000,
+        "red_below": 8000
+      },
+      "window_hours": 6,
+      "enabled": true,
+      "would_have_caught": "Future emit regressions in Analytics/Chunked site managers (analogous code paths to PR #1663 patrol-manager fix)"
+    },
+    {
+      "id": "fleet_billing_emit_6h",
+      "component": "vms-connector",
+      "source": "nr_log",
+      "nrql": "SELECT count(*) FROM Log WHERE cluster_name='Connector-EKS' AND container_name NOT LIKE 'staging-%' AND message LIKE '%site_product_ended%' SINCE 6 hours ago",
+      "unit": "count_per_6h",
+      "description": "Fleet-wide site_product_ended emit count across all integration classes (VCH + CHM + AutoPatrol + Analytics) in 6h. Top-level sanity check \u2014 ~180K/6h baseline. A coordinated drop here means something fleet-wide is wrong (event-handler ELB down, SQS issue, internal-event-handler outage). Per-class signals identify which integration regressed; this one says 'something is broken everywhere.'",
+      "regression_rules": [
+        "silent_drop_inverse"
+      ],
+      "critical": true,
+      "thresholds": {
+        "yellow_below": 50000,
+        "red_below": 15000
+      },
+      "window_hours": 6,
+      "enabled": true,
+      "would_have_caught": "Fleet-wide event-handler / SQS / ELB outages affecting billing"
+    },
+    {
+      "id": "ecr_pruning_risk_count",
+      "component": "ecr-lifecycle",
+      "source": "external",
+      "writer": "~/bin/ecr-lifecycle-audit (Firebat, daily systemd timer)",
+      "unit": "lambdas",
+      "description": "Count of image-backed Lambdas whose currently-deployed digest would be pruned at the next ECR lifecycle policy evaluation. Should always be 0. Any non-zero means we are one cold-start / scale-up event away from an inference-style outage. Audit walks us-west-2/us-east-1/eu-west-1, simulates each repo's lifecycle rules against the live image set + digest used by Code.ImageUri.",
+      "regression_rules": [],
+      "critical": true,
+      "thresholds": {
+        "yellow_above": 0,
+        "red_above": 0
+      },
+      "window_hours": 24,
+      "freshness_threshold_hours": 36,
+      "enabled": true,
+      "would_have_caught": "2026-05-02 InferenceAPI-prod outage (ECR lifecycle pruned the live image's digest)"
+    },
+    {
+      "id": "ecr_dangerous_policies",
+      "component": "ecr-lifecycle",
+      "source": "external",
+      "writer": "~/bin/ecr-lifecycle-audit (Firebat, daily systemd timer)",
+      "unit": "facet_count",
+      "description": "FACET dict of ECR repos with overly-broad lifecycle expire rules \u2014 tagPatternList=['.*'] / '*' / [] applied to tagged images. These rules will eventually prune in-use images even if no Lambda is at risk *today*. Companion to ecr_pruning_risk_count: this catches the bug when the repo has few images, before count crosses the rule's threshold. Yellow if any exists, red if any deployed digest is also at risk.",
+      "regression_rules": [
+        "new_pattern"
+      ],
+      "thresholds": {
+        "yellow_above": 0,
+        "red_above": 0
+      },
+      "window_hours": 24,
+      "freshness_threshold_hours": 36,
+      "enabled": true,
+      "would_have_caught": "Class of ECR-lifecycle policy errors that took down inference 2026-05-02"
+    },
+    {
+      "id": "inferenceapi_prod_errors_us_west_2",
+      "component": "inference-api",
+      "region": "us-west-2",
+      "source": "cw_metric",
+      "query": "aws cloudwatch get-metric-statistics --namespace AWS/Lambda --metric-name Errors --dimensions Name=FunctionName,Value=InferenceAPI-prod --region us-west-2 --period 3600 --statistics Sum",
+      "unit": "errors_per_hour",
+      "description": "InferenceAPI-prod Lambda function-level Errors metric over the last hour, in us-west-2. Reactive companion to ecr_pruning_risk_count: catches anything that spikes Lambda errors \u2014 image-pull failures, unhandled exceptions, OOMs, init-time crashes. The 2026-05-02 outage drove this to thousands/hour for hours; we want to learn that within the next dashboard tick (\u22641h) instead.",
+      "regression_rules": [
+        "silent_drop_inverse"
+      ],
+      "thresholds": {
+        "yellow_above": 0,
+        "red_above": 50
+      },
+      "window_hours": 1,
+      "enabled": true,
+      "would_have_caught": "2026-05-02 InferenceAPI-prod outage (caught the 5XX spike in real time)"
+    },
+    {
+      "id": "inferenceapi_prod_errors_eu_west_1",
+      "component": "inference-api",
+      "region": "eu-west-1",
+      "source": "cw_metric",
+      "query": "aws cloudwatch get-metric-statistics --namespace AWS/Lambda --metric-name Errors --dimensions Name=FunctionName,Value=InferenceAPI-prod --region eu-west-1 --period 3600 --statistics Sum",
+      "unit": "errors_per_hour",
+      "description": "Same as inferenceapi_prod_errors_us_west_2 but for the EU region. Independent dimension so a single-region incident is visible without being averaged against a healthy region.",
+      "regression_rules": [
+        "silent_drop_inverse"
+      ],
+      "thresholds": {
+        "yellow_above": 0,
+        "red_above": 50
+      },
+      "window_hours": 1,
+      "enabled": true,
+      "would_have_caught": "Future eu-west-1-only inference outage"
+    },
+    {
+      "id": "autopatrol_server_patrol_summary_rate",
+      "component": "autopatrol_server",
+      "region": "us-west-2",
+      "source": "nr_log",
+      "nrql": "SELECT count(*) FROM Log WHERE cluster_name='Connector-EKS' AND container_name LIKE 'autopatrol-server%' AND message LIKE '%Generating patrol summary%' SINCE 1 hour ago",
+      "unit": "count_per_hour",
+      "description": "Count of 'Generating patrol summary' lines emitted by autopatrol-server containers in the last hour. Each line corresponds to one patrol going through the summarizer; rate-of-zero is the silent-break detector (the autopatrol equivalent of the 2026-04-23 onboarder incident). Note: NR k8s integration tags clusterName='Connector-EKS' even though the AWS cluster is inference-eks-Ny9n. Wildcard on container_name covers both 'autopatrol-server-dev' (~14.8k logs/24h, the active container) and 'autopatrol-server' (~58 logs/24h, legacy/secondary). Original signal used exact-match container_name='autopatrol-server' which never matched the active container — surfaced + fixed 2026-05-15 (4-day false-RED).",
+      "regression_rules": [
+        "silent_drop"
+      ],
+      "thresholds": {
+        "yellow_below": 2,
+        "red_below": 1
+      },
+      "window_hours": 1,
+      "enabled": true,
+      "would_have_caught": "Future autopatrol-server silent-break (analog of 2026-04-23 onboarder incident)"
+    },
+    {
+      "id": "autopatrol_server_error_rate",
+      "component": "autopatrol_server",
+      "region": "us-west-2",
+      "source": "nr_log",
+      "nrql": "SELECT count(*) FROM Log WHERE cluster_name='Connector-EKS' AND container_name='autopatrol-server' AND (level='ERROR' OR message LIKE '% - ERROR - %') SINCE 1 hour ago",
+      "unit": "count_per_hour",
+      "description": "Error-level log line count for the autopatrol-server prod container. Catches structured logs (level='ERROR') AND text-format logs (message matching the ' - ERROR - ' segment from the stdlib basicConfig prefix '<ts> - <logger> - ERROR - <body>'). The dual match means the signal works today and stays correct after structured logging ships (see autopatrol-server NR upgrade workstream). Calibrated empirically: 24h window 2026-05-04 had 0 errors, so threshold yellow>5 / red>20 errors-per-hour is a generous spike detector that won't false-positive on noise.",
+      "regression_rules": [],
+      "thresholds": {
+        "yellow_above": 5,
+        "red_above": 20
+      },
+      "window_hours": 1,
+      "enabled": true,
+      "would_have_caught": "Spike in summarizer / handler exceptions"
+    },
+    {
+      "id": "autopatrol_server_cnctnfail_rate",
+      "component": "autopatrol_server",
+      "region": "us-west-2",
+      "source": "nr_log",
+      "nrql": "SELECT count(*) FROM Log WHERE cluster_name='Connector-EKS' AND container_name='autopatrol-server' AND (message LIKE '%Unable to connect to cameras during this patrol%' OR message LIKE '%could not be reached%') SINCE 1 hour ago",
+      "unit": "count_per_hour",
+      "description": "Count of patrols that hit the new connection-failure summary path (PR #26, 2026-05-04). A non-trivial trickle is normal \u2014 connection failures happen. A sudden spike means something upstream broke (camera fleet down, immix outage, connector crash). Also serves as the deploy-acceptance-test for the fix: once we see the first non-zero count, we have proof the new code path renders correctly in prod.",
+      "regression_rules": [],
+      "thresholds": {
+        "yellow_above": 3,
+        "red_above": 10
+      },
+      "window_hours": 1,
+      "enabled": true,
+      "would_have_caught": "Camera fleet connectivity degradation"
+    },
+    {
+      "id": "billing_production_unbilled_cams",
+      "component": "billing",
+      "source": "minipc_local",
+      "command": "jq -r .unbilled.production_missing_subscription.cameras /home/mork/.local/state/minipc-tasks/billing/reconciliation-$(date +%Y-%m).json 2>/dev/null || echo 0",
+      "unit": "count_per_24h",
+      "description": "Production cameras (not trial/internal) running billable products but NOT in usage_monthly. Sourced from daily billing-reconcile-check timer (post-SPRD-swap). May 2026 actual: 2,024 cams; Feb 2026 baseline: 803 cams. Stale-file alarm covered by billing_reconcile_freshness.",
+      "regression_rules": [],
+      "thresholds": {
+        "yellow_above": 500,
+        "red_above": 1500
+      },
+      "window_hours": 24,
+      "enabled": true,
+      "would_have_caught": "Cohort F missing-subscription class (~400 of the 642 cams)"
+    },
+    {
+      "id": "billing_reconcile_residual",
+      "component": "billing",
+      "source": "minipc_local",
+      "command": "jq -r .reconciliation.residual /home/mork/.local/state/minipc-tasks/billing/reconciliation-$(date +%Y-%m).json 2>/dev/null || echo 999",
+      "unit": "count_per_24h",
+      "description": "Reconciliation residual \u2014 every Postgres-active camera should land in exactly one pipeline bucket (Connector / Clip / VCH). Non-zero indicates a counting bug, schema drift, or unhandled integration type. Default 999 if JSON missing (covers stale-file case).",
+      "regression_rules": [],
+      "thresholds": {
+        "yellow_above": 0,
+        "red_above": 10
+      },
+      "window_hours": 24,
+      "enabled": true,
+      "would_have_caught": "Counting drift in reconcile_cameras.py if a new integration type lands without script update"
+    },
+    {
+      "id": "billing_reconcile_freshness",
+      "component": "billing",
+      "source": "minipc_local",
+      "command": "find /home/mork/.local/state/minipc-tasks/billing -name reconciliation-*.json -mtime -1 -print | wc -l",
+      "unit": "facet_count",
+      "description": "Count of reconciliation JSON sinks written in the last 24h. Expected: 1. Zero means the systemd timer didn\u2019t fire or the wrapper exited before writing. Catches missing daily runs that would otherwise leave the other two billing signals reading stale numbers.",
+      "regression_rules": [],
+      "thresholds": {
+        "yellow_below": 1,
+        "red_below": 1
+      },
+      "window_hours": 24,
+      "enabled": true,
+      "would_have_caught": "Timer wedge / wrapper regression / sink-dir permission loss"
+    },
+    {
+      "id": "ap_empty_metrics_warn_6h",
+      "component": "vms-connector",
+      "source": "nr_log",
+      "nrql": "SELECT count(*) FROM Log WHERE cluster_name='Connector-EKS' AND container_name NOT LIKE 'staging-%' AND (message LIKE '%empty_metrics_dict%' OR message LIKE '%no products configured%') SINCE 6 hours ago",
+      "unit": "count_per_6h",
+      "description": "AP/VCH schedule pods where billing-emit got an empty plain_metrics dict for at least one stream. Two log tokens covered: the new connector-side WARN ('empty_metrics_dict', fires at HttpOnlyAdminDAO.get_product_by_metrics \u2014 earliest detection) and the downstream misconfigured-fallback WARN ('no products configured', fires from billing_emit). Expected steady-state: 0 once admin-side generator bug is fixed. Discovered 2026-05-21 via NR log triage for connector-46767-autopatrol-1102; root cause is actuate_admin commit 627af2c2 (Dec 2025) emitting empty metrics when schedule_product_metrics doesn't intersect with stream.stream_metrics. Currently ~180/6h pre-fix (sites 37837, 41070, 46767).",
+      "regression_rules": [],
+      "critical": false,
+      "thresholds": {
+        "yellow_above": 0,
+        "red_above": 50
+      },
+      "window_hours": 6,
+      "enabled": true,
+      "would_have_caught": "2026-05-21 ap-empty-metrics class \u2014 schedule settings.json generated with empty metrics \u2192 connector falls back to 'misconfigured' billing product silently"
+    },
+    {
+      "id": "ap_metrics_admin_fallback_24h",
+      "component": "actuate-admin",
+      "source": "nr_log",
+      "nrql": "SELECT count(*) FROM Log WHERE container_name = 'prod_camera_admin' AND message LIKE '%ap_metrics_fallback_all%' SINCE 24 hours ago",
+      "unit": "count_per_24h",
+      "description": "Upstream pair to ap_empty_metrics_warn_6h. Fires from actuate_admin's SettingsGenerator.list_metrics_by_schedule when an AP schedule's schedule_product_metrics(enabled=True) doesn't intersect with the camera stream's stream_metrics \u2014 the generator falls back to stream.stream_metrics.all() instead of writing empty metrics to S3, so the connector keeps working but the data inconsistency surfaces here. Each event identifies a (stream, schedule) pair that needs admin-side cleanup (either populate the schedule's product metrics or adjust the stream's metric assignments).",
+      "regression_rules": [],
+      "critical": false,
+      "thresholds": {
+        "yellow_above": 0,
+        "red_above": 50
+      },
+      "window_hours": 24,
+      "enabled": true,
+      "would_have_caught": "Same as ap_empty_metrics_warn_6h but caught at the admin generator one step earlier \u2014 settings are never uploaded broken"
     }
   ]
 }

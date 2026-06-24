@@ -1,6 +1,6 @@
 ---
 name: kb-auto
-description: Headless autonomous ingestion from the dive queue. Designed for scheduled or looped execution without user interaction. Processes items from _dive-queue.md automatically. Trigger on "kb auto", "auto ingest", "headless kb", "autonomous kb ingest".
+description: Headless autonomous ingestion from the dive queue (_dive-queue.md). For scheduled/looped execution without user interaction. Trigger: '/kb-auto', 'auto ingest'.
 user-invocable: true
 allowed-tools:
   - Bash
